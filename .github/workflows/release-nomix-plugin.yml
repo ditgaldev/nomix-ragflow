@@ -1,0 +1,122 @@
+name: Release Nomix RAGFlow plugin
+
+on:
+  push:
+    tags:
+      - 'nomix-ragflow-v*.*.*'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: integrations/nomix-harness
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Check tag and package version
+        shell: bash
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          tag_version="${GITHUB_REF_NAME#nomix-ragflow-v}"
+          test "$package_version" = "$tag_version" || { echo "tag $tag_version != package $package_version"; exit 1; }
+      - name: Verify published Harness baseline
+        shell: bash
+        run: |
+          for package in \
+            @nomix-ai/cordis \
+            @nomix-ai/nomix-fs \
+            @nomix-ai/nomix-launch-environment \
+            @nomix-ai/nomix-mcp-client \
+            @nomix-ai/nomix-tools
+          do
+            expected="$(node -p "require('./package.json').devDependencies['$package']")"
+            actual="$(npm view "$package@$expected" version)"
+            test "$actual" = "$expected" || { echo "$package: expected $expected, registry returned $actual"; exit 1; }
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm install
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - name: Pack and audit
+        shell: bash
+        run: |
+          tarball="$(npm pack --ignore-scripts --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s)[0].filename))")"
+          node scripts/audit-tarball.mjs "$tarball"
+          node scripts/verify-consumer.mjs "$tarball"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+        id: pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nomix-ragflow-${{ github.ref_name }}
+          path: integrations/nomix-harness/${{ steps.pack.outputs.tarball }}
+          if-no-files-found: error
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: integrations/nomix-harness
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          name: nomix-ragflow-${{ github.ref_name }}
+          path: integrations/nomix-harness
+      - name: Refuse an existing version
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          error_file="$(mktemp)"
+          if npm view "@nomix-ai/nomix-ragflow@$version" version >/dev/null 2>"$error_file"; then
+            echo "@nomix-ai/nomix-ragflow@$version already exists"
+            exit 1
+          fi
+          grep -qE 'E404|404 Not Found' "$error_file" || { cat "$error_file"; echo 'registry preflight failed'; exit 1; }
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish exact artifact
+        shell: bash
+        run: |
+          tarball="$(find . -maxdepth 1 -name 'nomix-ai-nomix-ragflow-*.tgz' -print -quit)"
+          test -n "$tarball"
+          npm publish "$tarball" --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Verify registry metadata and provenance
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          tarball="$(find . -maxdepth 1 -name 'nomix-ai-nomix-ragflow-*.tgz' -print -quit)"
+          expected_integrity="sha512-$(openssl dgst -sha512 -binary "$tarball" | base64 -w0)"
+          for attempt in {1..20}; do
+            published="$(npm view "@nomix-ai/nomix-ragflow@$version" --json 2>/dev/null || true)"
+            latest="$(npm view @nomix-ai/nomix-ragflow dist-tags.latest 2>/dev/null || true)"
+            integrity="$(npm view "@nomix-ai/nomix-ragflow@$version" dist.integrity 2>/dev/null || true)"
+            attestations="$(npm view "@nomix-ai/nomix-ragflow@$version" dist.attestations.url 2>/dev/null || true)"
+            if test -n "$published" && test "$latest" = "$version" && test "$integrity" = "$expected_integrity" && test -n "$attestations"; then exit 0; fi
+            sleep 15
+          done
+          echo "registry verification timed out"; exit 1
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
