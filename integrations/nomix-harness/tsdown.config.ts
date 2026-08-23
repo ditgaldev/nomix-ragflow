@@ -6,6 +6,7 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   clean: true,
+  hash: false,
   outDir: 'lib',
   outExtensions: () => ({ js: '.js', dts: '.d.ts' }),
   external: [/^@nomix-ai\//],

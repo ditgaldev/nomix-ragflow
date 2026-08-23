@@ -34,24 +34,37 @@ const chunks = await ragflow.retrieval.search({
 
 ## Nomix Profile / Cordis 配置
 
-先把 npm 包安装到 Harness Profile，再加载命名式插件：
+先把插件 bundle 安装到对应的 Harness Profile：
+
+```bash
+nomix plugin --profile my-profile add @nomix-ai/nomix-ragflow
+```
+
+bundle 会插入一条默认禁用的 `ragflow` Cordis 配置，因为无法预先猜测部署地址和
+凭证。请在该 Profile 自己的 `cordis.patch.yml` 中启用并配置；Profile patch 会
+在 bundle patch 之后应用：
 
 ```yaml
-plugins:
-  - package: '@nomix-ai/nomix-ragflow'
-    config:
-      baseURL: https://ragflow.example.com
-      serverName: ragflow
-      workspaceRoot: .
-      maxFileBytes: 536870912
+- id: ragflow
+  disabled: false
+  config:
+    baseURL: https://ragflow.example.com
+    serverName: ragflow
+    workspaceRoot: .
+    maxFileBytes: 536870912
 ```
 
 推荐在 Harness 启动环境中设置 `RAGFLOW_API_KEY`；也可以显式配置 `apiKey`。
 默认 MCP 地址为 `${baseURL}/api/v1/mcp`。使用独立 Python MCP 服务时配置：
 
 ```yaml
-      mcpURL: http://ragflow-mcp.internal:9382/mcp
+- id: ragflow
+  config:
+    baseURL: https://ragflow.example.com
+    mcpURL: http://ragflow-mcp.internal:9382/mcp
 ```
+
+Cordis 会整体替换一行的 `config`，因此在后续覆盖时还要重复写出需要保留的其他值。
 
 MCP 桥接层保留 RAGFlow 动态提供的检索、数据集列表和聊天列表工具。插件另外
 注册 8 个以 `action` 区分操作的领域管理工具，覆盖数据集、文档、文件传输、

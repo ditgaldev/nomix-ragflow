@@ -1,0 +1,7 @@
+# Installing this bundle adds the plugin row without guessing deployment
+# credentials or endpoints. Enable and configure it in the profile's own
+# cordis.patch.yml, which is applied after bundle layers.
+- insert:
+    - id: ragflow
+      name: '@nomix-ai/nomix-ragflow'
+      disabled: true

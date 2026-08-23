@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
@@ -8,8 +8,13 @@ const [input] = process.argv.slice(2)
 if (!input) throw new Error('usage: node scripts/verify-consumer.mjs <tarball>')
 const tarball = resolve(input)
 const directory = await mkdtemp(join(tmpdir(), 'nomix-ragflow-consumer-'))
+const npm = process.platform === 'win32' ? process.execPath : 'npm'
+const npmArguments = process.platform === 'win32'
+  ? [process.env.npm_execpath ?? join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')]
+  : []
 await writeFile(join(directory, 'package.json'), JSON.stringify({ private: true, type: 'module' }))
-execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', tarball], { cwd: directory, stdio: 'inherit' })
+execFileSync(npm, [...npmArguments, 'install', '--ignore-scripts', '--no-audit', '--no-fund', tarball], { cwd: directory, stdio: 'inherit' })
+execFileSync(process.execPath, [fileURLToPath(new URL('./link-harness-kernel.mjs', import.meta.url)), directory], { cwd: directory, stdio: 'inherit' })
 await writeFile(join(directory, 'consumer.mjs'), `
 import * as plugin from '@nomix-ai/nomix-ragflow'
 import { RagFlowClient } from '@nomix-ai/nomix-ragflow/client'

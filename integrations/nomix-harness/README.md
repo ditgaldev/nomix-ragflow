@@ -34,17 +34,24 @@ failures throw `RagFlowApiError`; credentials are never included in error text.
 
 ## Nomix Harness profile
 
-Install the package into the profile that owns your Harness configuration, then
-load the named Cordis plugin:
+Install the bundle into the profile that owns your Harness configuration:
+
+```bash
+nomix plugin --profile my-profile add @nomix-ai/nomix-ragflow
+```
+
+The bundle inserts a disabled `ragflow` Cordis row because deployment credentials
+cannot be guessed. Enable and configure it in that profile's own
+`cordis.patch.yml` (profile patches are applied after bundle patches):
 
 ```yaml
-plugins:
-  - package: '@nomix-ai/nomix-ragflow'
-    config:
-      baseURL: https://ragflow.example.com
-      serverName: ragflow
-      workspaceRoot: .
-      maxFileBytes: 536870912
+- id: ragflow
+  disabled: false
+  config:
+    baseURL: https://ragflow.example.com
+    serverName: ragflow
+    workspaceRoot: .
+    maxFileBytes: 536870912
 ```
 
 Set `RAGFLOW_API_KEY` in the Harness launch environment. `apiKey` may instead be
@@ -54,8 +61,14 @@ By default MCP is discovered at `${baseURL}/api/v1/mcp`. For RAGFlow's separate
 Python MCP service:
 
 ```yaml
-      mcpURL: http://ragflow-mcp.internal:9382/mcp
+- id: ragflow
+  config:
+    baseURL: https://ragflow.example.com
+    mcpURL: http://ragflow-mcp.internal:9382/mcp
 ```
+
+Cordis replaces a row's complete `config` object, so repeat the other values
+you need when applying a later override.
 
 The MCP bridge publishes RAGFlow's dynamic retrieval, dataset-listing, and
 chat-listing tools. This plugin additionally publishes eight action-based

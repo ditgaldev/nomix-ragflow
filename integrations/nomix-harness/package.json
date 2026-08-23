@@ -20,6 +20,7 @@
   "files": [
     "lib/**/*.js",
     "lib/**/*.d.ts",
+    "cordis.patch.yml",
     "README.md",
     "README.zh.md",
     "LICENSE"
@@ -36,31 +37,31 @@
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
+  "nomix": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
   "scripts": {
     "build": "tsdown",
     "clean": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\"",
     "lint": "oxlint src tests scripts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "harness:link": "node scripts/link-harness-kernel.mjs",
+    "verify": "npm run harness:link && npm run typecheck && npm run lint && npm run test && npm run build",
     "prepack": "npm run verify"
   },
   "peerDependencies": {
     "@nomix-ai/cordis": "^4.0.1",
-    "@nomix-ai/nomix-fs": "^0.2.4",
-    "@nomix-ai/nomix-launch-environment": "^0.2.4",
-    "@nomix-ai/nomix-mcp-client": "^0.2.4",
-    "@nomix-ai/nomix-tools": "^0.2.4"
+    "@nomix-ai/nomix-harness": "^0.2.4"
   },
   "dependencies": {
     "@nomix-ai/schemastery": "^3.18.1"
   },
   "devDependencies": {
     "@nomix-ai/cordis": "4.0.1",
-    "@nomix-ai/nomix-fs": "0.2.4",
-    "@nomix-ai/nomix-launch-environment": "0.2.4",
-    "@nomix-ai/nomix-mcp-client": "0.2.4",
-    "@nomix-ai/nomix-tools": "0.2.4",
+    "@nomix-ai/nomix-harness": "0.2.4",
     "@types/node": "24.5.2",
     "oxlint": "1.14.0",
     "tsdown": "0.15.4",
