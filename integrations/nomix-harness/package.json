@@ -1,6 +1,6 @@
 {
   "name": "@nomix-ai/nomix-ragflow",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "RAGFlow client and Nomix Harness plugin",
   "license": "Apache-2.0",
   "type": "module",
@@ -14,6 +14,10 @@
     "./client": {
       "types": "./lib/client.d.ts",
       "default": "./lib/client.js"
+    },
+    "./plugin": {
+      "types": "./lib/plugin.d.ts",
+      "default": "./lib/plugin.js"
     },
     "./package.json": "./package.json"
   },
@@ -55,6 +59,14 @@
   "peerDependencies": {
     "@nomix-ai/cordis": "^4.0.1",
     "@nomix-ai/nomix-harness": "^0.2.4"
+  },
+  "peerDependenciesMeta": {
+    "@nomix-ai/cordis": {
+      "optional": true
+    },
+    "@nomix-ai/nomix-harness": {
+      "optional": true
+    }
   },
   "dependencies": {
     "@nomix-ai/schemastery": "^3.18.1"

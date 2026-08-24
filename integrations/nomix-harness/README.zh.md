@@ -55,20 +55,25 @@ bundle 会插入一条默认禁用的 `ragflow` Cordis 配置，因为无法预�
 ```
 
 推荐在 Harness 启动环境中设置 `RAGFLOW_API_KEY`；也可以显式配置 `apiKey`。
-默认 MCP 地址为 `${baseURL}/api/v1/mcp`。使用独立 Python MCP 服务时配置：
+RAGFlow MCP 是独立服务，插件不会再从 `baseURL` 猜测它的地址。需要启用 3 个
+动态检索工具时，请显式配置 Python MCP 服务：
 
 ```yaml
 - id: ragflow
+  disabled: false
   config:
     baseURL: https://ragflow.example.com
     mcpURL: http://ragflow-mcp.internal:9382/mcp
+    serverName: ragflow
 ```
 
-Cordis 会整体替换一行的 `config`，因此在后续覆盖时还要重复写出需要保留的其他值。
+省略 `mcpURL` 时，插件只加载 8 个 REST 管理工具。Cordis 会整体替换一行的
+`config`，因此在后续覆盖时还要重复写出需要保留的其他值。
 
-MCP 桥接层保留 RAGFlow 动态提供的检索、数据集列表和聊天列表工具。插件另外
-注册 8 个以 `action` 区分操作的领域管理工具，覆盖数据集、文档、文件传输、
-分块、聊天、会话、Agent 和 Memory。
+当 `serverName` 为 `ragflow` 时，MCP 桥接层把 3 个动态工具注册为
+`mcp__ragflow__ragflow_retrieval`、`mcp__ragflow__ragflow_list_datasets` 和
+`mcp__ragflow__ragflow_list_chats`。插件另外注册 8 个以 `action` 区分操作的
+领域管理工具，覆盖数据集、文档、文件传输、分块、聊天、会话、Agent 和 Memory。
 
 删除、批量删除、`deleteAll`、Memory forget 和取消解析在发送 REST 请求前必须
 取得一次性人工审批。无审批服务、无活动 Agent、策略为 `never`、拒绝或取消时
@@ -78,9 +83,10 @@ MCP 桥接层保留 RAGFlow 动态提供的检索、数据集列表和聊天列�
 都会被拒绝，并受 `maxFileBytes` 限制。二进制内容通过 REST 流式传输，不经过
 MCP/Base64。远程文件系统不能提供本地主机路径时，本地传输会明确报不支持。
 
-根模块只提供命名导出：`name`、`inject`、`Config`、`apply`、`RagFlowClient`、
-`RagFlowApiError`、领域客户端和所有公共类型。仅使用 REST 客户端时也可从
-`@nomix-ai/nomix-ragflow/client` 引入。
+包根模块和 `@nomix-ai/nomix-ragflow/client` 只导出可独立使用的 REST 客户端，
+不会加载 Harness 内部模块。Cordis Loader 使用
+`@nomix-ai/nomix-ragflow/plugin`，该子入口以命名方式导出 `name`、`inject`、
+`Config` 和 `apply`，不提供默认导出。
 
 许可证：Apache-2.0。
 
@@ -88,5 +94,5 @@ MCP/Base64。远程文件系统不能提供本地主机路径时，本地传输�
 
 在 GitHub 创建 `npm-publish` Environment，确认 `@nomix-ai` 对该包名有发布
 权限，并添加具备 publish 与 2FA-bypass 权限的细粒度 `NPM_TOKEN` Secret。
-推送 `nomix-ragflow-v0.1.0` 形式的标签会触发独立发布工作流；标签版本必须与
+推送 `nomix-ragflow-v0.1.1` 形式的标签会触发独立发布工作流；标签版本必须与
 `package.json` 完全一致。已存在的 npm 版本会被拒绝，发布同时生成 provenance。

@@ -3,5 +3,5 @@
 # cordis.patch.yml, which is applied after bundle layers.
 - insert:
     - id: ragflow
-      name: '@nomix-ai/nomix-ragflow'
+      name: '@nomix-ai/nomix-ragflow/plugin'
       disabled: true

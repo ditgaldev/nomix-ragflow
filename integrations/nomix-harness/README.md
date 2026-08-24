@@ -57,23 +57,28 @@ cannot be guessed. Enable and configure it in that profile's own
 Set `RAGFLOW_API_KEY` in the Harness launch environment. `apiKey` may instead be
 set explicitly in the plugin config, but environment injection is preferred.
 
-By default MCP is discovered at `${baseURL}/api/v1/mcp`. For RAGFlow's separate
-Python MCP service:
+RAGFlow's MCP endpoint is a separate service and is not inferred from
+`baseURL`. Configure it explicitly to enable the three dynamic retrieval tools:
 
 ```yaml
 - id: ragflow
+  disabled: false
   config:
     baseURL: https://ragflow.example.com
     mcpURL: http://ragflow-mcp.internal:9382/mcp
+    serverName: ragflow
 ```
 
-Cordis replaces a row's complete `config` object, so repeat the other values
-you need when applying a later override.
+Omit `mcpURL` to load only the eight REST management tools. Cordis replaces a
+row's complete `config` object, so repeat the other values you need when
+applying a later override.
 
 The MCP bridge publishes RAGFlow's dynamic retrieval, dataset-listing, and
-chat-listing tools. This plugin additionally publishes eight action-based
-management tools for datasets, documents, transfers, chunks, chats, sessions,
-agents, and memories.
+chat-listing tools under Harness-qualified names:
+`mcp__ragflow__ragflow_retrieval`, `mcp__ragflow__ragflow_list_datasets`, and
+`mcp__ragflow__ragflow_list_chats` when `serverName` is `ragflow`. This plugin
+additionally publishes eight action-based management tools for datasets,
+documents, transfers, chunks, chats, sessions, agents, and memories.
 
 Delete, bulk delete, `deleteAll`, memory forget, and parse cancellation actions
 return a one-time Harness approval request before the REST call. If approval is
@@ -87,10 +92,10 @@ host path reports local transfer as unsupported.
 
 ## Exports
 
-The root module has named exports only: `name`, `inject`, `Config`, `apply`,
-`RagFlowClient`, `RagFlowApiError`, domain clients, and all public request and
-response types. The REST-only client is also available from
-`@nomix-ai/nomix-ragflow/client`.
+The package root and `@nomix-ai/nomix-ragflow/client` export the standalone
+REST client without loading Harness internals. The Cordis Loader uses
+`@nomix-ai/nomix-ragflow/plugin`, whose named exports are `name`, `inject`,
+`Config`, and `apply`; it has no default export.
 
 Licensed under Apache-2.0.
 
@@ -98,6 +103,6 @@ Licensed under Apache-2.0.
 
 Create the GitHub Environment `npm-publish`, grant `@nomix-ai` publish access
 to this package, and add a fine-grained `NPM_TOKEN` secret with publish and
-2FA-bypass permission. A tag such as `nomix-ragflow-v0.1.0` runs the isolated
+2FA-bypass permission. A tag such as `nomix-ragflow-v0.1.1` runs the isolated
 release workflow; its version must exactly match `package.json`. Existing npm
 versions are rejected and publication uses npm provenance.

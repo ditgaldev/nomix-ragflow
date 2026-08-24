@@ -14,13 +14,13 @@ describe('destructive tool approval classification', () => {
     ['ragflow_manage_memories', 'forget_message'],
   ])('asks once for %s.%s', async (name, action) => {
     const next = vi.fn(async () => ({ kind: 'allow' as const }))
-    await expect(destructiveDecision(name, { action, input: {} }, next)).resolves.toMatchObject({ kind: 'ask' })
+    await expect(destructiveDecision(name, { input: { action } }, next)).resolves.toMatchObject({ kind: 'ask' })
     expect(next).not.toHaveBeenCalled()
   })
 
   it('delegates non-destructive and foreign calls', async () => {
     const next = vi.fn(async () => ({ kind: 'allow' as const }))
-    await expect(destructiveDecision('ragflow_manage_datasets', { action: 'list', input: {} }, next)).resolves.toEqual({ kind: 'allow' })
+    await expect(destructiveDecision('ragflow_manage_datasets', { input: { action: 'list' } }, next)).resolves.toEqual({ kind: 'allow' })
     await expect(destructiveDecision('another_plugin', { action: 'delete' }, next)).resolves.toEqual({ kind: 'allow' })
     expect(next).toHaveBeenCalledTimes(2)
   })

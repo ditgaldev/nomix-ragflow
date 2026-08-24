@@ -48,12 +48,15 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      - name: Install pnpm for Harness profile verification
+        run: npm install --global pnpm@10.16.1
       - name: Pack and audit
         shell: bash
         run: |
           tarball="$(npm pack --ignore-scripts --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s)[0].filename))")"
           node scripts/audit-tarball.mjs "$tarball"
           node scripts/verify-consumer.mjs "$tarball"
+          node scripts/verify-profile.mjs "$tarball"
           echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
         id: pack
       - uses: actions/upload-artifact@v4

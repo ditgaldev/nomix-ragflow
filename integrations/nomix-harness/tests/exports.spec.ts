@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import * as plugin from '../src/index.js'
+import * as client from '../src/index.js'
+import * as plugin from '../src/plugin.js'
 
 describe('Cordis loader exports', () => {
-  it('keeps named metadata and has no default export', () => {
+  it('keeps the generic root free of Harness runtime imports', () => {
+    expect(client.RagFlowClient).toBeTypeOf('function')
+    expect('apply' in client).toBe(false)
+    expect('default' in client).toBe(false)
+  })
+
+  it('keeps named plugin metadata on the plugin subpath', () => {
     expect(plugin.name).toBe('nomix-ragflow')
     expect(plugin.inject).toEqual(['tools', 'fs'])
     expect(plugin.Config).toBeDefined()

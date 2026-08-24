@@ -1,11 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { applyMcp } = vi.hoisted(() => ({ applyMcp: vi.fn(async () => undefined) }))
 vi.mock('@nomix-ai/nomix-mcp-client', () => ({ apply: applyMcp }))
 
-import { apply } from '../src/index.js'
+import { apply } from '../src/plugin.js'
 
 describe('plugin lifecycle and MCP bridge', () => {
+  beforeEach(() => applyMcp.mockClear())
+
   it('discovers MCP through the configured bridge and scopes every tool disposer', async () => {
     const registered: string[] = []
     const disposed: string[] = []
@@ -24,6 +26,7 @@ describe('plugin lifecycle and MCP bridge', () => {
 
     await apply(ctx, {
       baseURL: 'https://ragflow.example.com/',
+      mcpURL: 'http://ragflow-mcp.internal:9382/mcp',
       apiKey: 'secret',
       serverName: 'knowledge',
       requestTimeoutMs: 1_000,
@@ -35,12 +38,26 @@ describe('plugin lifecycle and MCP bridge', () => {
     expect(applyMcp).toHaveBeenCalledWith(ctx, expect.objectContaining({
       transport: 'streamable-http',
       serverName: 'knowledge',
-      url: 'https://ragflow.example.com/api/v1/mcp',
+      url: 'http://ragflow-mcp.internal:9382/mcp',
       headers: { Authorization: 'Bearer secret' },
     }))
 
     for (const dispose of effects.reverse()) dispose()
     expect(disposed.sort()).toEqual(registered.sort())
+  })
+
+  it('loads REST management tools without inventing an MCP endpoint', async () => {
+    const registered: string[] = []
+    const ctx = {
+      tools: { register: (tool: { name: string }) => { registered.push(tool.name); return () => undefined } },
+      effect: (callback: () => (() => void)) => callback(),
+      on: () => undefined,
+    } as never
+
+    await apply(ctx, { baseURL: 'http://ragflow:9380', apiKey: 'secret' })
+
+    expect(registered).toHaveLength(8)
+    expect(applyMcp).not.toHaveBeenCalled()
   })
 
   it('accepts the standalone Python MCP endpoint', async () => {

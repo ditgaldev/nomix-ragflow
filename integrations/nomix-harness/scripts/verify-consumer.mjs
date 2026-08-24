@@ -14,19 +14,17 @@ const npmArguments = process.platform === 'win32'
   : []
 await writeFile(join(directory, 'package.json'), JSON.stringify({ private: true, type: 'module' }))
 execFileSync(npm, [...npmArguments, 'install', '--ignore-scripts', '--no-audit', '--no-fund', tarball], { cwd: directory, stdio: 'inherit' })
-execFileSync(process.execPath, [fileURLToPath(new URL('./link-harness-kernel.mjs', import.meta.url)), directory], { cwd: directory, stdio: 'inherit' })
 await writeFile(join(directory, 'consumer.mjs'), `
-import * as plugin from '@nomix-ai/nomix-ragflow'
+import * as client from '@nomix-ai/nomix-ragflow'
 import { RagFlowClient } from '@nomix-ai/nomix-ragflow/client'
-if (plugin.name !== 'nomix-ragflow' || typeof plugin.apply !== 'function' || plugin.default !== undefined) process.exit(2)
+if (typeof client.RagFlowClient !== 'function' || client.default !== undefined) process.exit(2)
 if (typeof RagFlowClient !== 'function') process.exit(3)
 `)
 execFileSync(process.execPath, [join(directory, 'consumer.mjs')], { cwd: directory, stdio: 'inherit' })
 await writeFile(join(directory, 'consumer.ts'), `
-import { Config, RagFlowClient, apply, inject, name, type Dataset } from '@nomix-ai/nomix-ragflow'
-import { RagFlowApiError } from '@nomix-ai/nomix-ragflow/client'
+import { RagFlowClient, RagFlowApiError, type Dataset } from '@nomix-ai/nomix-ragflow'
 const client = new RagFlowClient({ baseURL: 'http://localhost:9380', apiKey: 'test' })
-const values: [string, readonly string[], typeof Config, typeof apply, Promise<Dataset[]>, typeof RagFlowApiError] = [name, inject, Config, apply, client.datasets.list(), RagFlowApiError]
+const values: [Promise<Dataset[]>, typeof RagFlowApiError] = [client.datasets.list(), RagFlowApiError]
 void values
 `)
 await writeFile(join(directory, 'tsconfig.json'), JSON.stringify({
@@ -35,5 +33,12 @@ await writeFile(join(directory, 'tsconfig.json'), JSON.stringify({
 }))
 const tsc = new URL('../node_modules/typescript/bin/tsc', import.meta.url)
 execFileSync(process.execPath, [fileURLToPath(tsc), '-p', join(directory, 'tsconfig.json')], { cwd: directory, stdio: 'inherit' })
+execFileSync(npm, [...npmArguments, 'install', '--ignore-scripts', '--no-audit', '--no-fund', '@nomix-ai/nomix-harness@0.2.4'], { cwd: directory, stdio: 'inherit' })
+execFileSync(process.execPath, [fileURLToPath(new URL('./link-harness-kernel.mjs', import.meta.url)), directory], { cwd: directory, stdio: 'inherit' })
+await writeFile(join(directory, 'plugin.mjs'), `
+import * as plugin from '@nomix-ai/nomix-ragflow/plugin'
+if (plugin.name !== 'nomix-ragflow' || typeof plugin.apply !== 'function' || plugin.default !== undefined) process.exit(4)
+`)
+execFileSync(process.execPath, [join(directory, 'plugin.mjs')], { cwd: directory, stdio: 'inherit' })
 const installed = JSON.parse(await readFile(join(directory, 'node_modules/@nomix-ai/nomix-ragflow/package.json'), 'utf8'))
-console.log(`consumer imported ${installed.name}@${installed.version}`)
+console.log(`generic and Harness consumers imported ${installed.name}@${installed.version}`)
