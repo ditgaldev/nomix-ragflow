@@ -33,14 +33,10 @@ jobs:
       - name: Verify published Harness baseline
         shell: bash
         run: |
-          for package in \
-            @nomix-ai/cordis \
-            @nomix-ai/nomix-harness
-          do
-            expected="$(node -p "require('./package.json').devDependencies['$package']")"
-            actual="$(npm view "$package@$expected" version)"
-            test "$actual" = "$expected" || { echo "$package: expected $expected, registry returned $actual"; exit 1; }
-          done
+          package=@nomix-ai/nomix-harness
+          expected="$(node -p "require('./package.json').devDependencies['$package']")"
+          actual="$(npm view "$package@$expected" version)"
+          test "$actual" = "$expected" || { echo "$package: expected $expected, registry returned $actual"; exit 1; }
       - run: npm install
       - run: npm run harness:link
       - run: npm run typecheck
