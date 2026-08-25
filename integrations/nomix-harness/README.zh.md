@@ -9,8 +9,8 @@
 npm install @nomix-ai/nomix-ragflow
 ```
 
-要求 Node.js `^22.19 || >=24`，首版面向 Nomix Harness `0.2.x`，发布契约固定
-使用 Harness `0.2.4` 验证。
+要求 Node.js `^22.19 || >=24`。插件入口面向 Nomix Harness `^0.2.5`，Cordis、
+Schemastery 和其他插件运行时模块均解析到 Harness 内置 kernel，不再自行安装副本。
 
 ## TypeScript 直接调用
 
@@ -84,9 +84,10 @@ RAGFlow MCP 是独立服务，插件不会再从 `baseURL` 猜测它的地址。
 MCP/Base64。远程文件系统不能提供本地主机路径时，本地传输会明确报不支持。
 
 包根模块和 `@nomix-ai/nomix-ragflow/client` 只导出可独立使用的 REST 客户端，
-不会加载 Harness 内部模块。Cordis Loader 使用
+不要求安装 Harness。Cordis Loader 使用
 `@nomix-ai/nomix-ragflow/plugin`，该子入口以命名方式导出 `name`、`inject`、
-`Config` 和 `apply`，不提供默认导出。
+`Config` 和 `apply`，不提供默认导出。该插件入口必须运行在 Harness 内，所有外部
+`@nomix-ai/*` 导入由 Harness 内置 kernel 提供。
 
 许可证：Apache-2.0。
 
@@ -94,5 +95,6 @@ MCP/Base64。远程文件系统不能提供本地主机路径时，本地传输�
 
 在 GitHub 创建 `npm-publish` Environment，确认 `@nomix-ai` 对该包名有发布
 权限，并添加具备 publish 与 2FA-bypass 权限的细粒度 `NPM_TOKEN` Secret。
-推送 `nomix-ragflow-v0.1.1` 形式的标签会触发独立发布工作流；标签版本必须与
-`package.json` 完全一致。已存在的 npm 版本会被拒绝，发布同时生成 provenance。
+把发布提交推送到 `npm-nomix-ragflow` 分支后，工作流从 `package.json` 读取版本，
+在 Linux、Windows 和 macOS 上完成验证，再发布 Linux 制品。PR 和 `nomix-v*`
+标签只执行相同验证，不发布。已存在的 npm 版本会被拒绝，发布同时生成 provenance。

@@ -9,8 +9,9 @@ existing RAGFlow deployment; it does not bundle or start RAGFlow.
 npm install @nomix-ai/nomix-ragflow
 ```
 
-The package targets Node.js `^22.19 || >=24` and Nomix Harness `0.2.x`; the
-release contract is tested against Harness `0.2.4`.
+The package targets Node.js `^22.19 || >=24`. The plugin entry targets Nomix
+Harness `^0.2.5` and resolves Cordis, Schemastery, and other plugin-runtime
+modules from the Harness embedded kernel instead of installing private copies.
 
 ## TypeScript client
 
@@ -93,9 +94,11 @@ host path reports local transfer as unsupported.
 ## Exports
 
 The package root and `@nomix-ai/nomix-ragflow/client` export the standalone
-REST client without loading Harness internals. The Cordis Loader uses
+REST client without requiring Harness. The Cordis Loader uses
 `@nomix-ai/nomix-ragflow/plugin`, whose named exports are `name`, `inject`,
-`Config`, and `apply`; it has no default export.
+`Config`, and `apply`; it has no default export. This plugin entry must run
+inside Harness so its external `@nomix-ai/*` imports resolve from the embedded
+kernel.
 
 Licensed under Apache-2.0.
 
@@ -103,6 +106,8 @@ Licensed under Apache-2.0.
 
 Create the GitHub Environment `npm-publish`, grant `@nomix-ai` publish access
 to this package, and add a fine-grained `NPM_TOKEN` secret with publish and
-2FA-bypass permission. A tag such as `nomix-ragflow-v0.1.1` runs the isolated
-release workflow; its version must exactly match `package.json`. Existing npm
-versions are rejected and publication uses npm provenance.
+2FA-bypass permission. Push the release commit to `npm-nomix-ragflow`; the
+workflow reads the version from `package.json`, verifies Linux, Windows, and
+macOS, and then publishes the Linux artifact. Pull requests and `nomix-v*`
+tags run the same verification without publishing. Existing npm versions are
+rejected and publication uses npm provenance.

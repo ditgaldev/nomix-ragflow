@@ -11,4 +11,14 @@ for (const entry of entries) {
 }
 const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 if (manifest.name !== '@nomix-ai/nomix-ragflow' || manifest.private === true) throw new Error('unexpected package identity')
+const harnessPackage = '@nomix-ai/nomix-harness'
+if (manifest.peerDependencies?.[harnessPackage] !== '^0.2.5') throw new Error('unexpected Harness peer range')
+if (manifest.peerDependenciesMeta?.[harnessPackage]?.optional !== true) throw new Error('Harness peer must stay optional for standalone client consumers')
+for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
+  for (const packageName of Object.keys(manifest[field] ?? {})) {
+    if (packageName.startsWith('@nomix-ai/') && packageName !== harnessPackage) {
+      throw new Error(`${packageName} must resolve from the Harness kernel, not ${field}`)
+    }
+  }
+}
 console.log(`audited ${entries.length} entries in ${tarball}`)

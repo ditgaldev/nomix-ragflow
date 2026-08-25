@@ -33,7 +33,7 @@ await writeFile(join(directory, 'tsconfig.json'), JSON.stringify({
 }))
 const tsc = new URL('../node_modules/typescript/bin/tsc', import.meta.url)
 execFileSync(process.execPath, [fileURLToPath(tsc), '-p', join(directory, 'tsconfig.json')], { cwd: directory, stdio: 'inherit' })
-execFileSync(npm, [...npmArguments, 'install', '--ignore-scripts', '--no-audit', '--no-fund', '@nomix-ai/nomix-harness@0.2.4'], { cwd: directory, stdio: 'inherit' })
+execFileSync(npm, [...npmArguments, 'install', '--ignore-scripts', '--no-audit', '--no-fund', '@nomix-ai/nomix-harness@0.2.5'], { cwd: directory, stdio: 'inherit' })
 execFileSync(process.execPath, [fileURLToPath(new URL('./link-harness-kernel.mjs', import.meta.url)), directory], { cwd: directory, stdio: 'inherit' })
 await writeFile(join(directory, 'plugin.mjs'), `
 import * as plugin from '@nomix-ai/nomix-ragflow/plugin'
