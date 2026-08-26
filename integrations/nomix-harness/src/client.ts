@@ -27,6 +27,7 @@ import type {
   PageRequest,
   RequestOptions,
   RetrieveRequest,
+  RetrievalResult,
   SearchMemoryMessagesRequest,
   Session,
   SessionTarget,
@@ -40,7 +41,7 @@ export interface RagFlowClientOptions {
   /** RAGFlow origin, without `/api/v1`. */
   baseURL: string
   /** API key sent as a Bearer credential. */
-  apiKey: string
+  apiKey: string | (() => string | Promise<string>)
   /** REST API version. */
   apiVersion?: string
   /** Per-request timeout in milliseconds. */
@@ -64,14 +65,30 @@ export class RagFlowApiError extends Error {
   readonly status?: number
   readonly code?: number
   readonly details?: JsonValue
+  readonly machineCode: string
 
-  constructor(message: string, options: { status?: number; code?: number; details?: JsonValue; cause?: unknown } = {}) {
+  constructor(message: string, options: { status?: number; code?: number; details?: JsonValue; cause?: unknown; machineCode?: string } = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause })
     this.name = 'RagFlowApiError'
     this.status = options.status
     this.code = options.code
     this.details = options.details
+    this.machineCode = options.machineCode ?? classifyFailure(options.status, options.code)
   }
+}
+
+function classifyFailure(status: number | undefined, code: number | undefined): string {
+  if (code === 108 || code === 109 || code === 401) return 'AUTH'
+  if (status === 401 || status === 403) return 'AUTH'
+  if (status === 404) return 'NOT_FOUND'
+  if (status === 408 || status === 504) return 'TIMEOUT'
+  if (status === 429) return 'RATE_LIMIT'
+  if (status !== undefined && status >= 500) return 'SERVER_ERROR'
+  if (code === 101 || code === 400) return 'INVALID_ARGS'
+  if (code === 102) return 'DATA_ERROR'
+  if (code === 105) return 'CONNECTION_ERROR'
+  if (code === 500) return 'SERVER_ERROR'
+  return 'RAGFLOW_ERROR'
 }
 
 function withoutTrailingSlash(value: string): string {
@@ -126,27 +143,28 @@ function answerOf(target: SessionTarget, value: JsonObject): Message {
 
 class RagFlowTransport {
   private readonly apiURL: string
-  private readonly apiKey: string
+  private readonly apiKey: () => string | Promise<string>
   private readonly timeoutMs: number
   private readonly fetcher: typeof globalThis.fetch
+  private readonly responseKeys = new WeakMap<Response, string>()
 
   constructor(options: RagFlowClientOptions) {
     if (options.baseURL.trim() === '') throw new TypeError('baseURL must not be empty')
-    if (options.apiKey.trim() === '') throw new TypeError('apiKey must not be empty')
+    if (typeof options.apiKey === 'string' && options.apiKey.trim() === '') throw new TypeError('apiKey must not be empty')
     const apiVersion = options.apiVersion ?? 'v1'
     if (!/^[A-Za-z0-9._-]+$/.test(apiVersion)) throw new TypeError('apiVersion contains unsupported characters')
     this.apiURL = `${withoutTrailingSlash(options.baseURL)}/api/${apiVersion}`
-    this.apiKey = options.apiKey
+    this.apiKey = typeof options.apiKey === 'string' ? () => options.apiKey as string : options.apiKey
     this.timeoutMs = positiveInteger(options.timeoutMs ?? 60_000, 'timeoutMs')
     this.fetcher = options.fetch ?? globalThis.fetch
   }
 
-  private safe(message: string): string {
-    return message.replaceAll(this.apiKey, '[REDACTED]')
+  private safe(message: string, apiKey: string): string {
+    return apiKey === '' ? message : message.replaceAll(apiKey, '[REDACTED]')
   }
 
-  private safeDetails(details: JsonValue | undefined): JsonValue | undefined {
-    return details === undefined ? undefined : JSON.parse(this.safe(JSON.stringify(details))) as JsonValue
+  private safeDetails(details: JsonValue | undefined, apiKey: string): JsonValue | undefined {
+    return details === undefined ? undefined : JSON.parse(this.safe(JSON.stringify(details), apiKey)) as JsonValue
   }
 
   /** Execute one JSON API request and validate the RAGFlow envelope. */
@@ -195,10 +213,11 @@ class RagFlowTransport {
       throw new RagFlowApiError(`RAGFlow returned an invalid envelope for ${method} ${path}`, { status: response.status })
     }
     if (envelope.code !== 0) {
-      throw new RagFlowApiError(this.safe(envelope.message ?? `RAGFlow API error ${envelope.code}`), {
+      const apiKey = this.responseKeys.get(response) ?? ''
+      throw new RagFlowApiError(this.safe(envelope.message ?? `RAGFlow API error ${envelope.code}`, apiKey), {
         status: response.status,
         code: envelope.code,
-        details: this.safeDetails(envelope.details),
+        details: this.safeDetails(envelope.details, apiKey),
       })
     }
     return envelope
@@ -215,17 +234,26 @@ class RagFlowTransport {
     appendQuery(url, options.query)
     const timeout = AbortSignal.timeout(this.timeoutMs)
     const signal = options.signal === undefined ? timeout : AbortSignal.any([timeout, options.signal])
+    let apiKey: string
+    try {
+      apiKey = (await this.apiKey()).trim()
+    } catch (cause) {
+      if (cause instanceof RagFlowApiError) throw cause
+      throw new RagFlowApiError('Unable to resolve the RAGFlow credential', { cause, machineCode: 'AUTH' })
+    }
+    if (apiKey === '') throw new RagFlowApiError('The RAGFlow credential is not configured', { machineCode: 'AUTH' })
     let response: Response
     try {
       response = await this.fetcher(url, {
         method,
         headers: {
-          authorization: `Bearer ${this.apiKey}`,
+          authorization: `Bearer ${apiKey}`,
           ...options.headers,
         },
         body: options.body,
         signal,
       })
+      this.responseKeys.set(response, apiKey)
     } catch (cause) {
       throw new RagFlowApiError(`RAGFlow request failed for ${method} ${path}`, { cause })
     }
@@ -237,7 +265,7 @@ class RagFlowTransport {
       } catch {
         // A non-JSON HTTP failure has no safer structured detail to expose.
       }
-      throw new RagFlowApiError(this.safe(message), { status: response.status })
+      throw new RagFlowApiError(this.safe(message, apiKey), { status: response.status })
     }
     return response
   }
@@ -351,7 +379,7 @@ export class DocumentClient {
   }
 
   async startParse(datasetId: string, documentIds: string[], options: RequestOptions = {}): Promise<void> {
-    await this.client.request('POST', `/datasets/${encodeURIComponent(datasetId)}/chunks`, {
+    await this.client.request('POST', `/datasets/${encodeURIComponent(datasetId)}/documents/parse`, {
       body: { document_ids: documentIds }, signal: options.signal,
     })
   }
@@ -389,7 +417,7 @@ export class DocumentClient {
   }
 
   async cancelParse(datasetId: string, documentIds: string[], options: RequestOptions = {}): Promise<void> {
-    await this.client.request('DELETE', `/datasets/${encodeURIComponent(datasetId)}/chunks`, {
+    await this.client.request('POST', `/datasets/${encodeURIComponent(datasetId)}/documents/stop`, {
       body: { document_ids: documentIds }, signal: options.signal,
     })
   }
@@ -713,8 +741,8 @@ export class MemoryClient {
 export class RetrievalClient {
   constructor(private readonly client: RagFlowTransport) {}
 
-  async search(request: RetrieveRequest, options: RequestOptions = {}): Promise<Chunk[]> {
-    const data = await this.client.request<{ chunks: Chunk[] }>('POST', '/retrieval', {
+  async search(request: RetrieveRequest, options: RequestOptions = {}): Promise<RetrievalResult> {
+    return this.client.request<RetrievalResult>('POST', '/retrieval', {
       signal: options.signal,
       body: {
         dataset_ids: request.datasetIds,
@@ -731,8 +759,9 @@ export class RetrievalClient {
         ...(request.metadataCondition === undefined ? {} : { metadata_condition: request.metadataCondition }),
         use_kg: request.useKg ?? false,
         toc_enhance: request.tocEnhance ?? false,
+        ...(request.highlight === undefined ? {} : { highlight: request.highlight }),
+        ...(request.referenceMetadata === undefined ? {} : { reference_metadata: request.referenceMetadata }),
       },
     })
-    return data.chunks
   }
 }

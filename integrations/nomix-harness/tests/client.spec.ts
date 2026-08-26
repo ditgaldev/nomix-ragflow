@@ -42,7 +42,8 @@ describe('RagFlowClient contracts', () => {
   it.each([
     ['datasets list', async (client: RagFlowClient) => client.datasets.list({ page: 2, pageSize: 7, ids: ['a', 'b'] }), 'GET', '/api/v1/datasets?page=2&page_size=7&ids=a&ids=b', undefined],
     ['dataset create', async (client: RagFlowClient) => client.datasets.create({ name: 'docs', embeddingModel: 'BAAI/bge' }), 'POST', '/api/v1/datasets', { name: 'docs', embedding_model: 'BAAI/bge', permission: 'me', chunk_method: 'naive' }],
-    ['document parse', async (client: RagFlowClient) => client.documents.startParse('d s', ['one']), 'POST', '/api/v1/datasets/d%20s/chunks', { document_ids: ['one'] }],
+    ['document parse', async (client: RagFlowClient) => client.documents.startParse('d s', ['one']), 'POST', '/api/v1/datasets/d%20s/documents/parse', { document_ids: ['one'] }],
+    ['document stop', async (client: RagFlowClient) => client.documents.cancelParse('d s', ['one']), 'POST', '/api/v1/datasets/d%20s/documents/stop', { document_ids: ['one'] }],
     ['chunk delete all', async (client: RagFlowClient) => client.chunks.delete('d', 'doc', undefined, true), 'DELETE', '/api/v1/datasets/d/documents/doc/chunks', { chunk_ids: null, delete_all: true }],
     ['chat sessions', async (client: RagFlowClient) => client.sessions.list({ kind: 'chat', ownerId: 'c', page: 3 }), 'GET', '/api/v1/chats/c/sessions?page=3', undefined],
     ['agent delete', async (client: RagFlowClient) => client.agents.delete('agent'), 'DELETE', '/api/v1/agents/agent', {}],
@@ -64,6 +65,15 @@ describe('RagFlowClient contracts', () => {
     expect(error).toBeInstanceOf(RagFlowApiError)
     expect(String(error)).toContain('denied')
     expect(String(error)).not.toContain('never-print-this')
+  })
+
+  it('resolves the API key for every request', async () => {
+    let apiKey = 'first-key'
+    const client = new RagFlowClient({ baseURL, apiKey: async () => apiKey })
+    await client.datasets.list()
+    apiKey = 'second-key'
+    await client.datasets.list()
+    expect(seen.map(call => call.authorization)).toEqual(['Bearer first-key', 'Bearer second-key'])
   })
 
   it('supports caller cancellation', async () => {

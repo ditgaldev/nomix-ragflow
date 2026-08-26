@@ -11,7 +11,7 @@ describe('Cordis loader exports', () => {
 
   it('keeps named plugin metadata on the plugin subpath', () => {
     expect(plugin.name).toBe('nomix-ragflow')
-    expect(plugin.inject).toEqual(['tools', 'fs'])
+    expect(plugin.inject).toEqual(['tools', 'fs', 'credentials'])
     expect(plugin.Config).toBeDefined()
     expect(plugin.apply).toBeTypeOf('function')
     expect('default' in plugin).toBe(false)

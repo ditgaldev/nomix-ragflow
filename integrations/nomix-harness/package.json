@@ -1,6 +1,6 @@
 {
   "name": "@nomix-ai/nomix-ragflow",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "RAGFlow client and Nomix Harness plugin",
   "license": "Apache-2.0",
   "type": "module",

@@ -46,6 +46,13 @@ export interface Chunk extends JsonView {
   similarity?: number
 }
 
+/** Complete retrieval response, including pagination and document aggregation facts. */
+export interface RetrievalResult {
+  chunks: Chunk[]
+  total: number
+  doc_aggs: JsonObject
+}
+
 /** Chat assistant view. */
 export interface Chat extends JsonView {
   id: string
@@ -125,6 +132,11 @@ export interface RetrieveRequest extends PageRequest {
   metadataCondition?: JsonObject
   useKg?: boolean
   tocEnhance?: boolean
+  highlight?: boolean
+  referenceMetadata?: {
+    include: boolean
+    fields?: string[]
+  }
 }
 
 export interface CreateChatRequest extends JsonView {

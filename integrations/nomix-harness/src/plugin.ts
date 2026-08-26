@@ -1,9 +1,9 @@
 import type { Context } from '@nomix-ai/cordis'
-import { launchEnvironmentOf } from '@nomix-ai/nomix-launch-environment'
-import { apply as applyMcpClient, type ReconnectConfig } from '@nomix-ai/nomix-mcp-client'
+import { credentialRef } from '@nomix-ai/nomix-credentials'
+import type {} from '@nomix-ai/nomix-fs'
 import z from '@nomix-ai/schemastery'
-import { RagFlowClient } from './client.js'
-import { destructiveDecision, registerManagementTools } from './tools.js'
+import { RagFlowApiError, RagFlowClient } from './client.js'
+import { destructiveDecision, registerRagFlowTools } from './tools.js'
 
 export * from './client.js'
 
@@ -11,52 +11,28 @@ export * from './client.js'
 export const name = 'nomix-ragflow'
 
 /** Services used for model tools, approvals, and workspace path resolution. */
-export const inject = ['tools', 'fs']
+export const inject = ['tools', 'fs', 'credentials']
 
 export interface Config {
   /** RAGFlow origin without `/api/v1`. */
   baseURL: string
   /** REST API version (default `v1`). */
   apiVersion?: string
-  /** Optional RAGFlow MCP Streamable HTTP endpoint, normally `http://host:9382/mcp`. */
-  mcpURL?: string
-  /** Explicit API key; otherwise `RAGFLOW_API_KEY` is read from the launch environment. */
-  apiKey?: string
-  /** MCP public tool namespace. */
-  serverName?: string
+  /** Harness credential reference resolved independently for every REST request. */
+  apiKeyRef?: string
   /** REST request timeout in milliseconds. */
   requestTimeoutMs?: number
-  /** MCP tool-call timeout in milliseconds. */
-  mcpToolCallTimeoutMs?: number
-  /** Fail plugin startup when configured MCP discovery cannot complete. */
-  failOnMcpStartupError?: boolean
-  /** MCP reconnect policy. */
-  reconnect?: ReconnectConfig
   /** Harness workspace root for local document transfers. */
   workspaceRoot?: string
-  /** Maximum upload or download size in bytes. */
+  /** Maximum workspace upload size in bytes. */
   maxFileBytes?: number
 }
-
-const Reconnect = z.object({
-  enabled: z.boolean().default(true),
-  initialDelayMs: z.number().min(1).default(500),
-  maxDelayMs: z.number().min(1).default(30_000),
-  maxAttempts: z.number().step(1).min(1).default(10),
-})
-
-const ServerName = /^[A-Za-z0-9_-]{1,32}$/
 
 export const Config = z.object({
   baseURL: z.string().required(),
   apiVersion: z.string().default('v1'),
-  mcpURL: z.string(),
-  apiKey: z.string().role('secret'),
-  serverName: z.string().pattern(ServerName).default('ragflow'),
+  apiKeyRef: z.string().default('RAGFLOW_API_KEY'),
   requestTimeoutMs: z.number().min(1).default(60_000),
-  mcpToolCallTimeoutMs: z.number().min(1).default(60_000),
-  failOnMcpStartupError: z.boolean().default(true),
-  reconnect: Reconnect,
   workspaceRoot: z.string().default('.'),
   maxFileBytes: z.number().step(1).min(1).default(512 * 1024 * 1024),
 }) as unknown as z<Config>
@@ -68,34 +44,25 @@ function normalizedBaseURL(value: string): string {
   return value.replace(/\/+$/, '')
 }
 
-function normalizedMcpURL(value: string): string {
-  const url = new URL(value)
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new TypeError('mcpURL must use http or https')
-  return value
-}
-
-/** Load the REST client, grouped management tools, approval gate, and optional MCP tools. */
+/** Load the REST client, semantic tools, and approval gate. */
 export async function apply(ctx: Context, config: Config): Promise<void> {
-  const apiKey = config.apiKey ?? launchEnvironmentOf(ctx).get('RAGFLOW_API_KEY')?.value
-  if (apiKey === undefined || apiKey.length === 0) throw new Error('RAGFLOW_API_KEY is required (set Config.apiKey or the launch environment variable)')
   const baseURL = normalizedBaseURL(config.baseURL)
   const apiVersion = config.apiVersion ?? 'v1'
-  const client = new RagFlowClient({ baseURL, apiVersion, apiKey, timeoutMs: config.requestTimeoutMs ?? 60_000 })
+  const apiKeyRef = credentialRef(config.apiKeyRef ?? 'RAGFLOW_API_KEY')
+  const client = new RagFlowClient({
+    baseURL,
+    apiVersion,
+    timeoutMs: config.requestTimeoutMs ?? 60_000,
+    apiKey: async () => {
+      const credential = await ctx.credentials.resolve(apiKeyRef)
+      if (credential === undefined) throw new RagFlowApiError(`Credential ${apiKeyRef} is not configured`, { machineCode: 'AUTH' })
+      return credential.value
+    },
+  })
 
-  registerManagementTools(ctx, client, {
+  registerRagFlowTools(ctx, client, {
     workspaceRoot: config.workspaceRoot ?? '.',
     maxFileBytes: config.maxFileBytes ?? 512 * 1024 * 1024,
   })
   ctx.on('tools/pre-execute', (exec, next) => destructiveDecision(exec.name, exec.arguments, next))
-
-  if (config.mcpURL === undefined) return
-  await applyMcpClient(ctx, {
-    transport: 'streamable-http',
-    serverName: config.serverName ?? 'ragflow',
-    url: normalizedMcpURL(config.mcpURL),
-    headers: { Authorization: `Bearer ${apiKey}` },
-    toolCallTimeoutMs: config.mcpToolCallTimeoutMs ?? 60_000,
-    failOnStartupError: config.failOnMcpStartupError ?? true,
-    reconnect: config.reconnect,
-  })
 }
