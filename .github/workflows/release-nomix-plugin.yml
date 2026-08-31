@@ -39,6 +39,7 @@ jobs:
           test "$actual" = "$expected" || { echo "$package: expected $expected, registry returned $actual"; exit 1; }
       - run: npm install
       - run: npm run harness:link
+      - run: npm run contracts:check
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test

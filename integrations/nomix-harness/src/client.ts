@@ -1,10 +1,8 @@
-/** TypeScript client for the public RAGFlow HTTP API. */
-
-import { setTimeout as delay } from 'node:timers/promises'
-
+import { BusinessGatewayError } from './errors.js'
+import { assertOperationResponse, isOpenApiErrorEnvelope } from './openapi.generated.js'
 import type {
   Agent,
-  AskSessionRequest,
+  BusinessAuthorizationContext,
   Chat,
   Chunk,
   CreateAgentRequest,
@@ -13,6 +11,8 @@ import type {
   CreateMemoryRequest,
   Dataset,
   Document,
+  GatewayResult,
+  InvokeSessionRequest,
   JsonObject,
   JsonValue,
   ListAgentsRequest,
@@ -22,82 +22,122 @@ import type {
   ListMemoriesRequest,
   ListSessionsRequest,
   Memory,
-  MemoryList,
   Message,
+  OperationBody,
+  OperationQuery,
   PageRequest,
   RequestOptions,
-  RetrieveRequest,
   RetrievalResult,
+  RetrieveRequest,
   SearchMemoryMessagesRequest,
   Session,
   SessionTarget,
   UploadDocument,
+  VersionedRequestOptions,
 } from './types.js'
+import type { BusinessGatewayJsonOperation, OpenApiSuccessEnvelope, OperationData, OperationResponse } from './openapi.generated.js'
 
+export { BusinessGatewayError } from './errors.js'
 export type * from './types.js'
 
-/** Client construction options. */
-export interface RagFlowClientOptions {
-  /** RAGFlow origin, without `/api/v1`. */
-  baseURL: string
-  /** API key sent as a Bearer credential. */
-  apiKey: string | (() => string | Promise<string>)
-  /** REST API version. */
-  apiVersion?: string
-  /** Per-request timeout in milliseconds. */
-  timeoutMs?: number
-  /** Fetch implementation, primarily for controlled runtimes and tests. */
-  fetch?: typeof globalThis.fetch
-}
+export const DEFAULT_RAGFLOW_RESPONSE_MAX_BYTES = 16 * 1024 * 1024
+export const MAX_RAGFLOW_RESPONSE_MAX_BYTES = 64 * 1024 * 1024
+const ERROR_RESPONSE_MAX_BYTES = 64 * 1024
 
-interface Envelope<T> {
-  code: number
-  message?: string
-  data?: T
-  details?: JsonValue
+export interface RagFlowBusinessClientOptions {
+  /** Dedicated Business Gateway service root. It must not include /api/v1. */
+  baseURL: string
+  /** Business access token or a provider called for every request. */
+  accessToken: string | (() => string | Promise<string>)
+  timeoutMs?: number
+  /** Maximum response bytes buffered by this client. Defaults to 16 MiB. */
+  maxResponseBytes?: number
+  /** Audit-only entry point marker. It never grants actions or data scope. */
+  source?: 'rest' | 'agent'
 }
 
 type QueryValue = string | number | boolean | readonly string[] | undefined
 type Query = Record<string, QueryValue>
 
-/** Structured RAGFlow response failure with credentials excluded. */
-export class RagFlowApiError extends Error {
-  readonly status?: number
-  readonly code?: number
-  readonly details?: JsonValue
-  readonly machineCode: string
-
-  constructor(message: string, options: { status?: number; code?: number; details?: JsonValue; cause?: unknown; machineCode?: string } = {}) {
-    super(message, options.cause === undefined ? undefined : { cause: options.cause })
-    this.name = 'RagFlowApiError'
-    this.status = options.status
-    this.code = options.code
-    this.details = options.details
-    this.machineCode = options.machineCode ?? classifyFailure(options.status, options.code)
-  }
-}
-
-function classifyFailure(status: number | undefined, code: number | undefined): string {
-  if (code === 108 || code === 109 || code === 401) return 'AUTH'
-  if (status === 401 || status === 403) return 'AUTH'
-  if (status === 404) return 'NOT_FOUND'
-  if (status === 408 || status === 504) return 'TIMEOUT'
-  if (status === 429) return 'RATE_LIMIT'
-  if (status !== undefined && status >= 500) return 'SERVER_ERROR'
-  if (code === 101 || code === 400) return 'INVALID_ARGS'
-  if (code === 102) return 'DATA_ERROR'
-  if (code === 105) return 'CONNECTION_ERROR'
-  if (code === 500) return 'SERVER_ERROR'
-  return 'RAGFLOW_ERROR'
-}
-
-function withoutTrailingSlash(value: string): string {
-  return value.replace(/\/+$/, '')
+interface WireOptions {
+  query?: Query
+  json?: unknown
+  body?: BodyInit
+  options?: RequestOptions
+  idempotencyRequired?: boolean
 }
 
 function positiveInteger(value: number, label: string): number {
   if (!Number.isSafeInteger(value) || value <= 0) throw new TypeError(`${label} must be a positive safe integer`)
   return value
+}
+
+function responseByteLimit(value: number, label: string): number {
+  const limit = positiveInteger(value, label)
+  if (limit > MAX_RAGFLOW_RESPONSE_MAX_BYTES) {
+    throw new TypeError(`${label} must not exceed ${MAX_RAGFLOW_RESPONSE_MAX_BYTES}`)
+  }
+  return limit
+}
+
+async function responseBytes(response: Response, maximumBytes: number): Promise<Uint8Array> {
+  const declaredLength = response.headers.get('content-length')
+  if (declaredLength !== null && /^\d+$/u.test(declaredLength) && Number(declaredLength) > maximumBytes) {
+    await response.body?.cancel().catch(() => undefined)
+    throw new BusinessGatewayError(`Business Gateway response exceeds the ${maximumBytes}-byte client limit`, {
+      code: 'RESPONSE_TOO_LARGE',
+      status: 502,
+    })
+  }
+  if (response.body === null) return new Uint8Array()
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > maximumBytes) {
+        await reader.cancel().catch(() => undefined)
+        throw new BusinessGatewayError(`Business Gateway response exceeds the ${maximumBytes}-byte client limit`, {
+          code: 'RESPONSE_TOO_LARGE',
+          status: 502,
+        })
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
+
+async function responseJson(response: Response, maximumBytes: number): Promise<unknown> {
+  const bytes = await responseBytes(response, maximumBytes)
+  if (bytes.byteLength === 0) throw new TypeError('Business Gateway returned an empty JSON response')
+  return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown
+}
+
+function serviceRoot(value: string): string {
+  if (value.trim() === '') throw new TypeError('baseURL must not be empty')
+  const url = new URL(value)
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopback(url.hostname))) {
+    throw new TypeError('baseURL must use HTTPS except for a loopback development endpoint')
+  }
+  if (url.username || url.password || url.search || url.hash) throw new TypeError('baseURL must not contain credentials, query, or fragment')
+  if (url.pathname !== '' && url.pathname !== '/') throw new TypeError('baseURL must be the service root without /api/v1 or another path')
+  return url.origin
+}
+
+function isLoopback(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1'
 }
 
 function appendQuery(url: URL, query: Query | undefined): void {
@@ -113,166 +153,325 @@ function appendQuery(url: URL, query: Query | undefined): void {
 }
 
 function pageQuery(request: PageRequest): Query {
+  return { cursor: request.cursor, limit: request.limit }
+}
+
+function defaultErrorCode(status: number): string {
+  return ({
+    400: 'BAD_REQUEST',
+    401: 'UNAUTHENTICATED',
+    403: 'FORBIDDEN',
+    404: 'NOT_FOUND',
+    409: 'CONFLICT',
+    422: 'VALIDATION_ERROR',
+    428: 'VERSION_REQUIRED',
+    429: 'RATE_LIMITED',
+    503: 'AUTH_SERVICE_UNAVAILABLE',
+  } as Record<number, string>)[status] ?? (status >= 500 ? 'SERVER_ERROR' : `HTTP_${status}`)
+}
+
+function retryAfterMilliseconds(value: string | null): number | undefined {
+  if (!value) return undefined
+  if (/^\d+$/u.test(value)) {
+    const milliseconds = Number(value) * 1_000
+    return Number.isFinite(milliseconds) ? milliseconds : undefined
+  }
+  const date = Date.parse(value)
+  return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now())
+}
+
+function cancellationError(method: string, path: string, timeout: AbortSignal, external: AbortSignal | undefined, cause: unknown): BusinessGatewayError {
+  const timedOut = timeout.aborted && !external?.aborted
+  return new BusinessGatewayError(
+    timedOut ? `Business Gateway timed out for ${method} ${path}` : `Business Gateway request was cancelled for ${method} ${path}`,
+    {
+      code: timedOut ? 'REQUEST_TIMEOUT' : 'REQUEST_CANCELLED',
+      status: timedOut ? 408 : 0,
+      retryable: timedOut,
+      cause,
+    },
+  )
+}
+
+interface RequestLifecycle {
+  readonly timeout: AbortSignal
+  readonly signal: AbortSignal
+  finish(): void
+}
+
+function requestLifecycle(timeoutMs: number, external: AbortSignal | undefined): RequestLifecycle {
+  const timeoutController = new AbortController()
+  const timer = globalThis.setTimeout(
+    () => timeoutController.abort(new DOMException('The operation timed out', 'TimeoutError')),
+    timeoutMs,
+  )
+  let finished = false
   return {
-    page: request.page,
-    page_size: request.pageSize,
-    orderby: request.orderby,
-    desc: request.desc,
+    timeout: timeoutController.signal,
+    signal: external === undefined ? timeoutController.signal : AbortSignal.any([timeoutController.signal, external]),
+    finish() {
+      if (finished) return
+      finished = true
+      globalThis.clearTimeout(timer)
+    },
   }
 }
 
-function asRecord(value: unknown, label: string): JsonObject {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new RagFlowApiError(`${label} returned a non-object response`)
+function responseWithLifecycle(
+  response: Response,
+  lifecycle: RequestLifecycle,
+  external: AbortSignal | undefined,
+  method: string,
+  path: string,
+): Response {
+  if (response.body === null) {
+    lifecycle.finish()
+    return response
   }
-  return value as JsonObject
+  const reader = response.body.getReader()
+  let settled = false
+  const settle = (): void => {
+    if (settled) return
+    settled = true
+    lifecycle.finish()
+    reader.releaseLock()
+  }
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await reader.read()
+        if (next.done) {
+          settle()
+          controller.close()
+        } else {
+          controller.enqueue(next.value)
+        }
+      } catch (cause) {
+        const error = lifecycle.signal.aborted
+          ? cancellationError(method, path, lifecycle.timeout, external, cause)
+          : new BusinessGatewayError(`Business Gateway response failed before completion for ${method} ${path}`, {
+              code: 'REQUEST_FAILED',
+              status: 0,
+              retryable: true,
+              cause,
+            })
+        settle()
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason)
+      } finally {
+        settle()
+      }
+    },
+  })
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  })
 }
 
-function answerOf(target: SessionTarget, value: JsonObject): Message {
-  const answer = target.kind === 'agent'
-    ? asRecord(value.data, 'agent completion').content
-    : value.answer
-  if (typeof answer !== 'string') throw new RagFlowApiError(`${target.kind} completion did not return answer text`)
-  const reference = value.reference
-  return {
-    content: answer,
-    role: 'assistant',
-    ...(reference === undefined ? {} : { reference }),
+async function withAbort<T>(value: Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted()
+  let onAbort: (() => void) | undefined
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason ?? new DOMException('The operation was aborted', 'AbortError'))
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+  try {
+    return await Promise.race([value, aborted])
+  } finally {
+    if (onAbort !== undefined) signal.removeEventListener('abort', onAbort)
   }
 }
 
-class RagFlowTransport {
+async function delay(milliseconds: number, signal: AbortSignal | undefined): Promise<void> {
+  signal?.throwIfAborted()
+  await new Promise<void>((resolve, reject) => {
+    let timer: ReturnType<typeof globalThis.setTimeout>
+    const onAbort = () => {
+      globalThis.clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      reject(signal?.reason ?? new DOMException('The operation was aborted', 'AbortError'))
+    }
+    const cleanup = () => signal?.removeEventListener('abort', onAbort)
+    timer = globalThis.setTimeout(() => {
+      cleanup()
+      resolve()
+    }, milliseconds)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+class BusinessGatewayTransport {
   private readonly apiURL: string
-  private readonly apiKey: () => string | Promise<string>
+  private readonly accessToken: () => string | Promise<string>
   private readonly timeoutMs: number
-  private readonly fetcher: typeof globalThis.fetch
-  private readonly responseKeys = new WeakMap<Response, string>()
+  private readonly maxResponseBytes: number
+  private readonly source: 'rest' | 'agent'
 
-  constructor(options: RagFlowClientOptions) {
-    if (options.baseURL.trim() === '') throw new TypeError('baseURL must not be empty')
-    if (typeof options.apiKey === 'string' && options.apiKey.trim() === '') throw new TypeError('apiKey must not be empty')
-    const apiVersion = options.apiVersion ?? 'v1'
-    if (!/^[A-Za-z0-9._-]+$/.test(apiVersion)) throw new TypeError('apiVersion contains unsupported characters')
-    this.apiURL = `${withoutTrailingSlash(options.baseURL)}/api/${apiVersion}`
-    this.apiKey = typeof options.apiKey === 'string' ? () => options.apiKey as string : options.apiKey
+  constructor(options: RagFlowBusinessClientOptions) {
+    const accessToken = options.accessToken
+    if (typeof accessToken === 'string' && accessToken.trim() === '') {
+      throw new TypeError('accessToken must not be empty')
+    }
+    this.apiURL = `${serviceRoot(options.baseURL)}/api/v1`
+    this.accessToken = typeof accessToken === 'string' ? () => accessToken : accessToken
     this.timeoutMs = positiveInteger(options.timeoutMs ?? 60_000, 'timeoutMs')
-    this.fetcher = options.fetch ?? globalThis.fetch
+    this.maxResponseBytes = responseByteLimit(options.maxResponseBytes ?? DEFAULT_RAGFLOW_RESPONSE_MAX_BYTES, 'maxResponseBytes')
+    if (options.source !== undefined && options.source !== 'rest' && options.source !== 'agent') {
+      throw new TypeError('source must be rest or agent')
+    }
+    this.source = options.source ?? 'rest'
+    if (this.timeoutMs > 300_000) throw new TypeError('timeoutMs must not exceed 300000')
   }
 
-  private safe(message: string, apiKey: string): string {
-    return apiKey === '' ? message : message.replaceAll(apiKey, '[REDACTED]')
+  async request<O extends BusinessGatewayJsonOperation>(operation: O, method: string, path: string, wire: WireOptions = {}): Promise<OperationData<O>> {
+    const envelope = await this.requestEnvelope(operation, method, path, wire)
+    return envelope.data
   }
 
-  private safeDetails(details: JsonValue | undefined, apiKey: string): JsonValue | undefined {
-    return details === undefined ? undefined : JSON.parse(this.safe(JSON.stringify(details), apiKey)) as JsonValue
-  }
-
-  /** Execute one JSON API request and validate the RAGFlow envelope. */
-  async request<T>(method: string, path: string, options: {
-    query?: Query
-    body?: JsonValue
-    signal?: AbortSignal
-  } = {}): Promise<T> {
+  async requestEnvelope<O extends BusinessGatewayJsonOperation>(operation: O, method: string, path: string, wire: WireOptions = {}): Promise<OpenApiSuccessEnvelope<OperationData<O>>> {
     const response = await this.raw(method, path, {
-      query: options.query,
-      signal: options.signal,
-      ...(options.body === undefined ? {} : {
-        body: JSON.stringify(options.body),
-        headers: { 'content-type': 'application/json' },
-      }),
+      ...wire,
+      ...(wire.json === undefined ? {} : { body: JSON.stringify(wire.json) }),
     })
-    const envelope = await this.requestEnvelope<T>(method, path, response)
-    return envelope.data as T
-  }
-
-  async requestEnvelope<T>(method: string, path: string, responseOrOptions: Response | {
-    query?: Query
-    body?: JsonValue
-    signal?: AbortSignal
-  } = {}): Promise<Envelope<T>> {
-    const response = responseOrOptions instanceof Response
-      ? responseOrOptions
-      : await this.raw(method, path, {
-          query: responseOrOptions.query,
-          signal: responseOrOptions.signal,
-          ...(responseOrOptions.body === undefined ? {} : {
-            body: JSON.stringify(responseOrOptions.body),
-            headers: { 'content-type': 'application/json' },
-          }),
-        })
-    let envelope: Envelope<T>
+    const contentType = response.headers.get('content-type') ?? ''
+    if (!contentType.includes('json')) {
+      await response.body?.cancel().catch(() => undefined)
+      throw new BusinessGatewayError(`Business Gateway returned non-JSON for ${method} ${path}`, {
+        code: 'INVALID_GATEWAY_RESPONSE',
+        status: response.status,
+      })
+    }
+    let envelope: unknown
     try {
-      envelope = await response.json() as Envelope<T>
+      envelope = await responseJson(response, this.responseLimit(wire.options))
     } catch (cause) {
-      throw new RagFlowApiError(`RAGFlow returned invalid JSON for ${method} ${path}`, {
+      if (cause instanceof BusinessGatewayError) throw cause
+      throw new BusinessGatewayError(`Business Gateway returned invalid JSON for ${method} ${path}`, {
+        code: 'INVALID_GATEWAY_RESPONSE',
         status: response.status,
         cause,
       })
     }
-    if (typeof envelope.code !== 'number') {
-      throw new RagFlowApiError(`RAGFlow returned an invalid envelope for ${method} ${path}`, { status: response.status })
-    }
-    if (envelope.code !== 0) {
-      const apiKey = this.responseKeys.get(response) ?? ''
-      throw new RagFlowApiError(this.safe(envelope.message ?? `RAGFlow API error ${envelope.code}`, apiKey), {
+    try {
+      assertOperationResponse(operation, envelope)
+    } catch (cause) {
+      throw new BusinessGatewayError(`Business Gateway returned an invalid envelope for ${method} ${path}`, {
+        code: 'INVALID_GATEWAY_RESPONSE',
         status: response.status,
-        code: envelope.code,
-        details: this.safeDetails(envelope.details, apiKey),
+        cause,
       })
     }
     return envelope
   }
 
-  /** Execute a raw request for binary and streaming endpoints. */
-  async raw(method: string, path: string, options: {
-    query?: Query
-    body?: BodyInit
-    headers?: HeadersInit
-    signal?: AbortSignal
-  } = {}): Promise<Response> {
-    const url = new URL(`${this.apiURL}${path}`)
-    appendQuery(url, options.query)
-    const timeout = AbortSignal.timeout(this.timeoutMs)
-    const signal = options.signal === undefined ? timeout : AbortSignal.any([timeout, options.signal])
-    let apiKey: string
-    try {
-      apiKey = (await this.apiKey()).trim()
-    } catch (cause) {
-      if (cause instanceof RagFlowApiError) throw cause
-      throw new RagFlowApiError('Unable to resolve the RAGFlow credential', { cause, machineCode: 'AUTH' })
+  async raw(method: string, path: string, wire: WireOptions = {}): Promise<Response> {
+    const options = wire.options ?? {}
+    if (wire.idempotencyRequired && !options.idempotencyKey?.trim()) {
+      throw new BusinessGatewayError('This write requires RequestOptions.idempotencyKey', {
+        code: 'IDEMPOTENCY_KEY_REQUIRED',
+        status: 400,
+      })
     }
-    if (apiKey === '') throw new RagFlowApiError('The RAGFlow credential is not configured', { machineCode: 'AUTH' })
+    const url = new URL(`${this.apiURL}${path}`)
+    appendQuery(url, wire.query)
+    const lifecycle = requestLifecycle(this.timeoutMs, options.signal)
+    let token: string
+    try {
+      token = (await withAbort(Promise.resolve(this.accessToken()), lifecycle.signal)).trim()
+    } catch (cause) {
+      lifecycle.finish()
+      if (lifecycle.signal.aborted) throw cancellationError(method, path, lifecycle.timeout, options.signal, undefined)
+      if (cause instanceof BusinessGatewayError) throw cause
+      throw new BusinessGatewayError('Unable to resolve the business access token', {
+        code: 'ACCESS_TOKEN_UNAVAILABLE',
+      })
+    }
+    if (!token || /\s/u.test(token)) {
+      lifecycle.finish()
+      throw new BusinessGatewayError('A non-empty business access token without whitespace is required', {
+        code: 'ACCESS_TOKEN_UNAVAILABLE',
+        status: 401,
+      })
+    }
+
+    const headers = new Headers({
+      authorization: `Bearer ${token}`,
+      accept: 'application/json',
+      'x-nomix-call-source': this.source,
+    })
+    if (wire.json !== undefined) headers.set('content-type', 'application/json')
+    if (options.idempotencyKey) headers.set('idempotency-key', options.idempotencyKey)
+    if (options.version !== undefined) headers.set('if-match', String(positiveInteger(options.version, 'RequestOptions.version')))
     let response: Response
     try {
-      response = await this.fetcher(url, {
-        method,
-        headers: {
-          authorization: `Bearer ${apiKey}`,
-          ...options.headers,
-        },
-        body: options.body,
-        signal,
-      })
-      this.responseKeys.set(response, apiKey)
+      response = await globalThis.fetch(url, { method, headers, body: wire.body, signal: lifecycle.signal })
     } catch (cause) {
-      throw new RagFlowApiError(`RAGFlow request failed for ${method} ${path}`, { cause })
+      lifecycle.finish()
+      if (lifecycle.signal.aborted) throw cancellationError(method, path, lifecycle.timeout, options.signal, cause)
+      throw new BusinessGatewayError(`Business Gateway request failed for ${method} ${path}`, {
+        code: 'REQUEST_FAILED',
+        status: 0,
+        retryable: true,
+        cause,
+      })
     }
-    if (!response.ok) {
-      let message = `RAGFlow HTTP ${response.status} for ${method} ${path}`
-      try {
-        const body = await response.clone().json() as { message?: unknown }
-        if (typeof body.message === 'string') message = body.message
-      } catch {
-        // A non-JSON HTTP failure has no safer structured detail to expose.
-      }
-      throw new RagFlowApiError(this.safe(message, apiKey), { status: response.status })
+    const managedResponse = responseWithLifecycle(response, lifecycle, options.signal, method, path)
+    if (!managedResponse.ok) throw await this.error(managedResponse, method, path, token, this.responseLimit(options))
+    return managedResponse
+  }
+
+  private responseLimit(options: RequestOptions | undefined): number {
+    if (options?.maxResponseBytes === undefined) return this.maxResponseBytes
+    return Math.min(this.maxResponseBytes, responseByteLimit(options.maxResponseBytes, 'RequestOptions.maxResponseBytes'))
+  }
+
+  private async error(response: Response, method: string, path: string, token: string, maximumBytes: number): Promise<BusinessGatewayError> {
+    let body: unknown
+    try {
+      body = await responseJson(response, Math.min(maximumBytes, ERROR_RESPONSE_MAX_BYTES))
+    } catch (cause) {
+      if (cause instanceof BusinessGatewayError && ['REQUEST_CANCELLED', 'REQUEST_FAILED', 'REQUEST_TIMEOUT'].includes(cause.code)) throw cause
+      // Non-JSON errors are represented only by status and operation.
     }
-    return response
+    const error = isOpenApiErrorEnvelope(body) ? body.error : undefined
+    const message = error !== undefined
+      ? error.message
+      : `Business Gateway HTTP ${response.status} for ${method} ${path}`
+    const retryAfterMs = retryAfterMilliseconds(response.headers.get('retry-after'))
+    return new BusinessGatewayError(redact(message, token), {
+      code: error?.code ?? defaultErrorCode(response.status),
+      status: response.status,
+      requestId: error?.requestId ?? response.headers.get('x-request-id') ?? undefined,
+      details: error?.details === undefined ? undefined : redactValue(error.details, token),
+      ...(error === undefined ? {} : { retryable: error.retryable }),
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+    })
   }
 }
 
-/** Public client. Domain properties mirror the public Python SDK. */
-export class RagFlowClient {
+function redact(value: string, token: string): string {
+  return token ? value.replaceAll(token, '[REDACTED]') : value
+}
+
+function redactValue(value: JsonValue, token: string): JsonValue {
+  if (typeof value === 'string') return redact(value, token)
+  if (Array.isArray(value)) return value.map(member => redactValue(member, token))
+  if (value !== null && typeof value === 'object') {
+    const result: JsonObject = {}
+    for (const [key, member] of Object.entries(value)) result[key] = redactValue(member, token)
+    return result
+  }
+  return value
+}
+
+export class RagFlowBusinessClient {
+  readonly authorization: AuthorizationClient
   readonly datasets: DatasetClient
   readonly documents: DocumentClient
   readonly chunks: ChunkClient
@@ -280,10 +479,12 @@ export class RagFlowClient {
   readonly sessions: SessionClient
   readonly agents: AgentClient
   readonly memories: MemoryClient
+  readonly memoryMessages: MemoryMessageClient
   readonly retrieval: RetrievalClient
 
-  constructor(options: RagFlowClientOptions) {
-    const transport = new RagFlowTransport(options)
+  constructor(options: RagFlowBusinessClientOptions) {
+    const transport = new BusinessGatewayTransport(options)
+    this.authorization = new AuthorizationClient(transport)
     this.datasets = new DatasetClient(transport)
     this.documents = new DocumentClient(transport)
     this.chunks = new ChunkClient(transport)
@@ -291,225 +492,220 @@ export class RagFlowClient {
     this.sessions = new SessionClient(transport)
     this.agents = new AgentClient(transport)
     this.memories = new MemoryClient(transport)
+    this.memoryMessages = new MemoryMessageClient(transport)
     this.retrieval = new RetrievalClient(transport)
   }
 }
 
-export class DatasetClient {
-  constructor(private readonly client: RagFlowTransport) {}
+export class AuthorizationClient {
+  constructor(private readonly transport: BusinessGatewayTransport) {}
 
-  create(request: CreateDatasetRequest, options: RequestOptions = {}): Promise<Dataset> {
-    return this.client.request('POST', '/datasets', {
-      signal: options.signal,
-      body: {
-        name: request.name,
-        ...(request.avatar === undefined ? {} : { avatar: request.avatar }),
-        ...(request.description === undefined ? {} : { description: request.description }),
-        ...(request.embeddingModel === undefined ? {} : { embedding_model: request.embeddingModel }),
-        permission: request.permission ?? 'me',
-        chunk_method: request.chunkMethod ?? 'naive',
-        ...(request.parserConfig === undefined ? {} : { parser_config: request.parserConfig }),
-        ...(request.autoMetadataConfig === undefined ? {} : { auto_metadata_config: request.autoMetadataConfig }),
-      },
+  getContext(options: RequestOptions = {}): Promise<BusinessAuthorizationContext> {
+    return this.transport.request('authorization.context', 'GET', '/gateway-context', { options })
+  }
+}
+
+export class DatasetClient {
+  constructor(private readonly transport: BusinessGatewayTransport) {}
+
+  create(request: CreateDatasetRequest, options: RequestOptions): Promise<Dataset> {
+    return this.transport.request('datasets.create', 'POST', '/datasets', { json: request, options, idempotencyRequired: true })
+  }
+
+  list(request: ListDatasetsRequest = {}, options: RequestOptions = {}): Promise<GatewayResult<Dataset[]>> {
+    return this.transport.requestEnvelope('datasets.list', 'GET', '/datasets', {
+      query: { ...pageQuery(request), id: request.id, ids: request.ids, name: request.name },
+      options,
     })
   }
 
-  list(request: ListDatasetsRequest = {}, options: RequestOptions = {}): Promise<Dataset[]> {
-    return this.client.request('GET', '/datasets', {
-      signal: options.signal,
-      query: { ...pageQuery(request), id: request.id, ids: request.ids, name: request.name },
-    })
+  get(datasetId: string, options: RequestOptions = {}): Promise<Dataset> {
+    return this.transport.request('datasets.get', 'GET', `/datasets/${encodeURIComponent(datasetId)}`, { options })
   }
 
   async getByName(name: string, options: RequestOptions = {}): Promise<Dataset> {
-    const [dataset] = await this.list({ name }, options)
-    if (dataset === undefined) throw new RagFlowApiError(`Dataset ${JSON.stringify(name)} not found`)
+    const [dataset] = (await this.list({ name, limit: 2 }, options)).data
+    if (dataset === undefined) throw new BusinessGatewayError(`Dataset ${JSON.stringify(name)} was not found`, { code: 'RESOURCE_NOT_FOUND', status: 404 })
     return dataset
   }
 
-  update(datasetId: string, patch: JsonObject, options: RequestOptions = {}): Promise<Dataset> {
-    return this.client.request('PUT', `/datasets/${encodeURIComponent(datasetId)}`, { body: patch, signal: options.signal })
+  update(datasetId: string, patch: OperationBody<'datasets.update'>, options: VersionedRequestOptions): Promise<Dataset> {
+    return this.transport.request('datasets.update', 'PATCH', `/datasets/${encodeURIComponent(datasetId)}`, { json: patch, options })
   }
 
-  async delete(ids: string[] | undefined, deleteAll = false, options: RequestOptions = {}): Promise<void> {
-    await this.client.request('DELETE', '/datasets', { body: { ids: ids ?? null, delete_all: deleteAll }, signal: options.signal })
+  delete(datasetId: string, options: VersionedRequestOptions): Promise<OperationData<'datasets.delete'>> {
+    return this.transport.request('datasets.delete', 'DELETE', `/datasets/${encodeURIComponent(datasetId)}`, { json: {}, options })
   }
 
-  getAutoMetadata(datasetId: string, options: RequestOptions = {}): Promise<JsonObject> {
-    return this.client.request('GET', `/datasets/${encodeURIComponent(datasetId)}/metadata/config`, { signal: options.signal })
+  batchDelete(ids: string[], options: RequestOptions): Promise<OperationData<'datasets.batchDelete'>> {
+    return this.transport.request('datasets.batchDelete', 'POST', '/datasets:batch-delete', { json: { ids }, options, idempotencyRequired: true })
   }
 
-  updateAutoMetadata(datasetId: string, config: JsonObject, options: RequestOptions = {}): Promise<JsonObject> {
-    return this.client.request('PUT', `/datasets/${encodeURIComponent(datasetId)}/metadata/config`, { body: config, signal: options.signal })
+  getMetadataConfig(datasetId: string, options: RequestOptions = {}): Promise<OperationData<'datasets.getMetadataConfig'>> {
+    return this.transport.request('datasets.getMetadataConfig', 'GET', `/datasets/${encodeURIComponent(datasetId)}/metadata-config`, { options })
+  }
+
+  updateMetadataConfig(datasetId: string, config: OperationBody<'datasets.updateMetadataConfig'>, options: VersionedRequestOptions): Promise<OperationData<'datasets.updateMetadataConfig'>> {
+    return this.transport.request('datasets.updateMetadataConfig', 'PUT', `/datasets/${encodeURIComponent(datasetId)}/metadata-config`, { json: config, options })
   }
 }
 
 export class DocumentClient {
-  constructor(private readonly client: RagFlowTransport) {}
+  constructor(private readonly transport: BusinessGatewayTransport) {}
 
-  async list(request: ListDocumentsRequest, options: RequestOptions = {}): Promise<Document[]> {
-    if (request.id !== undefined && request.ids !== undefined) throw new TypeError('id and ids are mutually exclusive')
-    const data = await this.client.request<{ docs: Document[] }>('GET', `/datasets/${encodeURIComponent(request.datasetId)}/documents`, {
-      signal: options.signal,
+  list(request: ListDocumentsRequest, options: RequestOptions = {}): Promise<GatewayResult<Document[]>> {
+    return this.transport.requestEnvelope('documents.list', 'GET', `/datasets/${encodeURIComponent(request.datasetId)}/documents`, {
       query: {
         ...pageQuery(request),
         id: request.id,
         ids: request.ids,
         name: request.name,
         keywords: request.keywords,
-        create_time_from: request.createTimeFrom,
-        create_time_to: request.createTimeTo,
+        createTimeFrom: request.createTimeFrom,
+        createTimeTo: request.createTimeTo,
       },
-    })
-    return data.docs
-  }
-
-  update(datasetId: string, documentId: string, patch: JsonObject, options: RequestOptions = {}): Promise<Document> {
-    return this.client.request('PATCH', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}`, {
-      body: patch,
-      signal: options.signal,
+      options,
     })
   }
 
-  async delete(datasetId: string, ids: string[] | undefined, deleteAll = false, options: RequestOptions = {}): Promise<void> {
-    await this.client.request('DELETE', `/datasets/${encodeURIComponent(datasetId)}/documents`, {
-      body: { ids: ids ?? null, delete_all: deleteAll },
-      signal: options.signal,
+  get(datasetId: string, documentId: string, options: RequestOptions = {}): Promise<Document> {
+    return this.transport.request('documents.get', 'GET', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}`, { options })
+  }
+
+  update(datasetId: string, documentId: string, patch: OperationBody<'documents.update'>, options: VersionedRequestOptions): Promise<Document> {
+    return this.transport.request('documents.update', 'PATCH', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}`, { json: patch, options })
+  }
+
+  delete(datasetId: string, documentId: string, options: VersionedRequestOptions): Promise<OperationData<'documents.delete'>> {
+    return this.transport.request('documents.delete', 'DELETE', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}`, { json: {}, options })
+  }
+
+  batchDelete(datasetId: string, ids: string[], options: RequestOptions): Promise<OperationData<'documents.batchDelete'>> {
+    return this.transport.request('documents.batchDelete', 'POST', `/datasets/${encodeURIComponent(datasetId)}/documents:batch-delete`, {
+      json: { ids },
+      options,
+      idempotencyRequired: true,
     })
   }
 
-  async startParse(datasetId: string, documentIds: string[], options: RequestOptions = {}): Promise<void> {
-    await this.client.request('POST', `/datasets/${encodeURIComponent(datasetId)}/documents/parse`, {
-      body: { document_ids: documentIds }, signal: options.signal,
+  startParse(datasetId: string, documentIds: string[], options: RequestOptions): Promise<OperationData<'documents.startParse'>> {
+    return this.transport.request('documents.startParse', 'POST', `/datasets/${encodeURIComponent(datasetId)}/documents:parse`, {
+      json: { documentIds },
+      options,
+      idempotencyRequired: true,
     })
   }
 
-  /** Start parsing and poll until every document reaches a terminal state. */
-  async parseAndWait(datasetId: string, documentIds: string[], options: RequestOptions & { pollIntervalMs?: number } = {}): Promise<Array<{
-    documentId: string
-    state: string
-    chunkCount?: number
-    tokenCount?: number
-  }>> {
-    await this.startParse(datasetId, documentIds, options)
-    const pending = new Set(documentIds)
-    const finished: Array<{ documentId: string; state: string; chunkCount?: number; tokenCount?: number }> = []
-    const interval = positiveInteger(options.pollIntervalMs ?? 1_000, 'pollIntervalMs')
-    while (pending.size > 0) {
-      options.signal?.throwIfAborted()
-      for (const documentId of pending) {
-        const [document] = await this.list({ datasetId, id: documentId }, options)
-        if (document === undefined) continue
-        const state = typeof document.run === 'string' ? document.run.toUpperCase() : ''
-        if (state === 'DONE' || state === 'FAIL' || state === 'CANCEL' || (document.progress ?? 0) >= 1) {
-          finished.push({
-            documentId,
-            state: state || 'DONE',
-            ...(document.chunk_count === undefined ? {} : { chunkCount: document.chunk_count }),
-            ...(document.token_count === undefined ? {} : { tokenCount: document.token_count }),
-          })
-          pending.delete(documentId)
-        }
-      }
-      if (pending.size > 0) await delay(interval, undefined, { signal: options.signal })
-    }
-    return finished
-  }
-
-  async cancelParse(datasetId: string, documentIds: string[], options: RequestOptions = {}): Promise<void> {
-    await this.client.request('POST', `/datasets/${encodeURIComponent(datasetId)}/documents/stop`, {
-      body: { document_ids: documentIds }, signal: options.signal,
+  cancelParse(datasetId: string, documentIds: string[], options: RequestOptions): Promise<OperationData<'documents.cancelParse'>> {
+    return this.transport.request('documents.cancelParse', 'POST', `/datasets/${encodeURIComponent(datasetId)}/documents:cancel-parse`, {
+      json: { documentIds },
+      options,
+      idempotencyRequired: true,
     })
   }
 
-  async upload(datasetId: string, documents: UploadDocument[], options: RequestOptions = {}): Promise<Document[]> {
+  async upload(datasetId: string, documents: UploadDocument[], options: RequestOptions): Promise<Document[]> {
     const form = new FormData()
     for (const document of documents) form.append('file', document.body, document.displayName)
-    const response = await this.client.raw('POST', `/datasets/${encodeURIComponent(datasetId)}/documents`, {
+    return this.transport.request('documents.upload', 'POST', `/datasets/${encodeURIComponent(datasetId)}/documents`, {
       body: form,
-      signal: options.signal,
+      options,
+      idempotencyRequired: true,
     })
-    const envelope = await this.client.requestEnvelope<Document[]>('POST', `/datasets/${encodeURIComponent(datasetId)}/documents`, response)
-    if (!Array.isArray(envelope.data)) throw new RagFlowApiError('RAGFlow document upload returned invalid data')
-    return envelope.data
   }
 
   download(datasetId: string, documentId: string, options: RequestOptions = {}): Promise<Response> {
-    return this.client.raw('GET', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}`, {
-      signal: options.signal,
-    })
+    return this.transport.raw('GET', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/content`, { options })
+  }
+
+  async parseAndWait(datasetId: string, documentIds: string[], options: RequestOptions & { pollIntervalMs?: number }): Promise<Document[]> {
+    await this.startParse(datasetId, documentIds, options)
+    const pending = new Set(documentIds)
+    const finished: Document[] = []
+    const interval = positiveInteger(options.pollIntervalMs ?? 1_000, 'pollIntervalMs')
+    while (pending.size > 0) {
+      options.signal?.throwIfAborted()
+      for (const id of pending) {
+        const document = await this.get(datasetId, id, options)
+        const state = String(document.run ?? '').toUpperCase()
+        if (state === 'DONE' || state === 'FAIL' || state === 'CANCEL' || (document.progress ?? 0) >= 1) {
+          finished.push(document)
+          pending.delete(id)
+        }
+      }
+      if (pending.size > 0) await delay(interval, options.signal)
+    }
+    return finished
   }
 }
 
 export class ChunkClient {
-  constructor(private readonly client: RagFlowTransport) {}
+  constructor(private readonly transport: BusinessGatewayTransport) {}
 
-  async list(datasetId: string, documentId: string, request: PageRequest & { keywords?: string; id?: string } = {}, options: RequestOptions = {}): Promise<Chunk[]> {
-    const data = await this.client.request<{ chunks: Chunk[] }>('GET', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/chunks`, {
-      signal: options.signal,
+  list(datasetId: string, documentId: string, request: OperationQuery<'chunks.list'> = {}, options: RequestOptions = {}): Promise<GatewayResult<Chunk[]>> {
+    return this.transport.requestEnvelope('chunks.list', 'GET', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/chunks`, {
       query: { ...pageQuery(request), keywords: request.keywords, id: request.id },
-    })
-    return data.chunks
-  }
-
-  async add(datasetId: string, documentId: string, request: {
-    content: string
-    importantKeywords?: string[]
-    questions?: string[]
-    imageBase64?: string
-    tagKeywords?: string[]
-  }, options: RequestOptions = {}): Promise<Chunk> {
-    const data = await this.client.request<{ chunk: Chunk }>('POST', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/chunks`, {
-      signal: options.signal,
-      body: {
-        content: request.content,
-        important_keywords: request.importantKeywords ?? [],
-        questions: request.questions ?? [],
-        tag_kwd: request.tagKeywords ?? [],
-        ...(request.imageBase64 === undefined ? {} : { image_base64: request.imageBase64 }),
-      },
-    })
-    return data.chunk
-  }
-
-  async update(datasetId: string, documentId: string, chunkId: string, patch: JsonObject, options: RequestOptions = {}): Promise<void> {
-    await this.client.request('PATCH', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/chunks/${encodeURIComponent(chunkId)}`, {
-      body: patch, signal: options.signal,
+      options,
     })
   }
 
-  async delete(datasetId: string, documentId: string, ids: string[] | undefined, deleteAll = false, options: RequestOptions = {}): Promise<void> {
-    await this.client.request('DELETE', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/chunks`, {
-      body: { chunk_ids: ids ?? null, delete_all: deleteAll }, signal: options.signal,
+  get(datasetId: string, documentId: string, chunkId: string, options: RequestOptions = {}): Promise<Chunk> {
+    return this.transport.request('chunks.get', 'GET', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/chunks/${encodeURIComponent(chunkId)}`, { options })
+  }
+
+  create(datasetId: string, documentId: string, input: OperationBody<'chunks.create'>, options: RequestOptions): Promise<Chunk> {
+    return this.transport.request('chunks.create', 'POST', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/chunks`, {
+      json: input,
+      options,
+      idempotencyRequired: true,
+    })
+  }
+
+  update(datasetId: string, documentId: string, chunkId: string, patch: OperationBody<'chunks.update'>, options: VersionedRequestOptions): Promise<Chunk> {
+    return this.transport.request('chunks.update', 'PATCH', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/chunks/${encodeURIComponent(chunkId)}`, { json: patch, options })
+  }
+
+  delete(datasetId: string, documentId: string, chunkId: string, options: VersionedRequestOptions): Promise<OperationData<'chunks.delete'>> {
+    return this.transport.request('chunks.delete', 'DELETE', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/chunks/${encodeURIComponent(chunkId)}`, { json: {}, options })
+  }
+
+  batchDelete(datasetId: string, documentId: string, ids: string[], options: RequestOptions): Promise<OperationData<'chunks.batchDelete'>> {
+    return this.transport.request('chunks.batchDelete', 'POST', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/chunks:batch-delete`, {
+      json: { ids },
+      options,
+      idempotencyRequired: true,
     })
   }
 }
 
 export class ChatClient {
-  constructor(private readonly client: RagFlowTransport) {}
+  constructor(private readonly transport: BusinessGatewayTransport) {}
 
-  create(request: CreateChatRequest, options: RequestOptions = {}): Promise<Chat> {
-    return this.client.request('POST', '/chats', { body: request as unknown as JsonObject, signal: options.signal })
+  create(request: CreateChatRequest, options: RequestOptions): Promise<Chat> {
+    return this.transport.request('chats.create', 'POST', '/chats', { json: request, options, idempotencyRequired: true })
   }
 
-  async list(request: ListChatsRequest = {}, options: RequestOptions = {}): Promise<Chat[]> {
-    const data = await this.client.request<{ chats: Chat[] }>('GET', '/chats', {
-      signal: options.signal,
-      query: { ...pageQuery(request), id: request.id, name: request.name, keywords: request.keywords, owner_ids: request.ownerIds },
+  list(request: ListChatsRequest = {}, options: RequestOptions = {}): Promise<GatewayResult<Chat[]>> {
+    return this.transport.requestEnvelope('chats.list', 'GET', '/chats', {
+      query: { ...pageQuery(request), id: request.id, name: request.name, keywords: request.keywords },
+      options,
     })
-    return data.chats
   }
 
   get(chatId: string, options: RequestOptions = {}): Promise<Chat> {
-    return this.client.request('GET', `/chats/${encodeURIComponent(chatId)}`, { signal: options.signal })
+    return this.transport.request('chats.get', 'GET', `/chats/${encodeURIComponent(chatId)}`, { options })
   }
 
-  async update(chatId: string, patch: JsonObject, options: RequestOptions = {}): Promise<void> {
-    await this.client.request('PATCH', `/chats/${encodeURIComponent(chatId)}`, { body: patch, signal: options.signal })
+  update(chatId: string, patch: OperationBody<'chats.update'>, options: VersionedRequestOptions): Promise<Chat> {
+    return this.transport.request('chats.update', 'PATCH', `/chats/${encodeURIComponent(chatId)}`, { json: patch, options })
   }
 
-  async delete(ids: string[] | undefined, deleteAll = false, options: RequestOptions = {}): Promise<void> {
-    await this.client.request('DELETE', '/chats', { body: { ids: ids ?? null, delete_all: deleteAll }, signal: options.signal })
+  delete(chatId: string, options: VersionedRequestOptions): Promise<OperationData<'chats.delete'>> {
+    return this.transport.request('chats.delete', 'DELETE', `/chats/${encodeURIComponent(chatId)}`, { json: {}, options })
+  }
+
+  batchDelete(ids: string[], options: RequestOptions): Promise<OperationData<'chats.batchDelete'>> {
+    return this.transport.request('chats.batchDelete', 'POST', '/chats:batch-delete', { json: { ids }, options, idempotencyRequired: true })
   }
 }
 
@@ -518,250 +714,204 @@ function sessionPath(target: SessionTarget): string {
 }
 
 export class SessionClient {
-  constructor(private readonly client: RagFlowTransport) {}
+  constructor(private readonly transport: BusinessGatewayTransport) {}
 
-  create(target: SessionTarget, input: JsonObject = {}, options: RequestOptions = {}): Promise<Session> {
-    return this.client.request('POST', sessionPath(target), { body: input, signal: options.signal })
+  create(target: SessionTarget, input: OperationBody<'chatSessions.create'>, options: RequestOptions): Promise<Session> {
+    if (target.kind === 'chat') return this.transport.request('chatSessions.create', 'POST', sessionPath(target), { json: input, options, idempotencyRequired: true })
+    return this.transport.request('agentSessions.create', 'POST', sessionPath(target), { json: input, options, idempotencyRequired: true })
   }
 
-  list(request: ListSessionsRequest, options: RequestOptions = {}): Promise<Session[]> {
-    return this.client.request('GET', sessionPath(request), {
-      signal: options.signal,
-      query: { ...pageQuery(request), id: request.id, name: request.name, user_id: request.userId },
-    })
-  }
-
-  async updateChat(chatId: string, sessionId: string, patch: JsonObject, options: RequestOptions = {}): Promise<void> {
-    await this.client.request('PATCH', `/chats/${encodeURIComponent(chatId)}/sessions/${encodeURIComponent(sessionId)}`, {
-      body: patch, signal: options.signal,
-    })
-  }
-
-  async delete(target: SessionTarget, ids: string[] | undefined, deleteAll = false, options: RequestOptions = {}): Promise<void> {
-    await this.client.request('DELETE', sessionPath(target), {
-      body: { ids: ids ?? null, delete_all: deleteAll }, signal: options.signal,
-    })
-  }
-
-  async ask(request: AskSessionRequest, options: RequestOptions = {}): Promise<Message> {
-    const { path, body } = this.completion(request, false)
-    const data = await this.client.request<JsonObject>('POST', path, { body, signal: options.signal })
-    return answerOf(request, data)
-  }
-
-  /** Yield normalized assistant messages from RAGFlow's SSE completion stream. */
-  async *askStream(request: AskSessionRequest, options: RequestOptions = {}): AsyncIterable<Message> {
-    const { path, body } = this.completion(request, true)
-    const response = await this.client.raw('POST', path, {
-      body: JSON.stringify(body),
-      headers: { 'content-type': 'application/json' },
-      signal: options.signal,
-    })
-    if (response.body === null) throw new RagFlowApiError('RAGFlow completion returned an empty stream')
-    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
-    let buffer = ''
-    try {
-      while (true) {
-        const { value, done } = await reader.read()
-        buffer += value ?? ''
-        if (done && buffer !== '') buffer += '\n'
-        const lines = buffer.split(/\r?\n/)
-        buffer = lines.pop() ?? ''
-        for (const rawLine of lines) {
-          const line = rawLine.trim()
-          if (line === '') continue
-          const content = line.startsWith('data:') ? line.slice(5).trim() : line
-          if (content === '[DONE]') return
-          let event: JsonObject
-          try { event = asRecord(JSON.parse(content), 'completion stream') } catch { continue }
-          if (typeof event.event === 'string' && event.event !== 'message' && event.event !== 'message_end') continue
-          if (request.kind === 'agent' && event.event === 'message_end') return
-          if (request.kind === 'chat' && event.data === true) return
-          yield answerOf(request, request.kind === 'chat' ? asRecord(event.data, 'chat completion') : event)
-        }
-        if (done) return
-      }
-    } finally {
-      reader.releaseLock()
+  list(request: ListSessionsRequest, options: RequestOptions = {}): Promise<GatewayResult<Session[]>> {
+    const wire = {
+      query: { ...pageQuery(request), id: request.id, name: request.name },
+      options,
     }
+    if (request.kind === 'chat') return this.transport.requestEnvelope('chatSessions.list', 'GET', sessionPath(request), wire)
+    return this.transport.requestEnvelope('agentSessions.list', 'GET', sessionPath(request), wire)
   }
 
-  private completion(request: AskSessionRequest, stream: boolean): { path: string; body: JsonObject } {
-    const extra = request.extra ?? {}
-    const body: JsonObject = request.kind === 'chat'
-      ? { ...extra, question: request.question ?? '', stream, session_id: request.sessionId }
-      : {
-          ...extra,
-          agent_id: request.ownerId,
-          query: request.question ?? '',
-          stream,
-          session_id: request.sessionId,
-          'openai-compatible': false,
-          ...(request.inputs === undefined ? {} : { inputs: request.inputs }),
-          ...(request.release === undefined ? {} : { release: request.release }),
-          ...(request.returnTrace === undefined ? {} : { return_trace: request.returnTrace }),
-        }
-    const path = request.kind === 'chat'
-      ? `/chats/${encodeURIComponent(request.ownerId)}/completions`
-      : '/agents/chat/completions'
-    return { path, body }
+  get(target: SessionTarget, sessionId: string, options: RequestOptions = {}): Promise<Session> {
+    const path = `${sessionPath(target)}/${encodeURIComponent(sessionId)}`
+    if (target.kind === 'chat') return this.transport.request('chatSessions.get', 'GET', path, { options })
+    return this.transport.request('agentSessions.get', 'GET', path, { options })
+  }
+
+  update(target: SessionTarget, sessionId: string, patch: OperationBody<'chatSessions.update'>, options: VersionedRequestOptions): Promise<Session> {
+    if (target.kind !== 'chat') throw new TypeError('Only chat sessions support update')
+    return this.transport.request('chatSessions.update', 'PATCH', `${sessionPath(target)}/${encodeURIComponent(sessionId)}`, { json: patch, options })
+  }
+
+  delete(target: SessionTarget, sessionId: string, options: VersionedRequestOptions): Promise<OperationData<'chatSessions.delete'>> {
+    const path = `${sessionPath(target)}/${encodeURIComponent(sessionId)}`
+    if (target.kind === 'chat') return this.transport.request('chatSessions.delete', 'DELETE', path, { json: {}, options })
+    return this.transport.request('agentSessions.delete', 'DELETE', path, { json: {}, options })
+  }
+
+  batchDelete(target: SessionTarget, ids: string[], options: RequestOptions): Promise<OperationData<'chatSessions.batchDelete'>> {
+    const path = `${sessionPath(target)}:batch-delete`
+    const wire = { json: { ids }, options, idempotencyRequired: true }
+    if (target.kind === 'chat') return this.transport.request('chatSessions.batchDelete', 'POST', path, wire)
+    return this.transport.request('agentSessions.batchDelete', 'POST', path, wire)
+  }
+
+  invoke(request: InvokeSessionRequest, options: RequestOptions): Promise<Message> {
+    const path = `${sessionPath(request)}/${encodeURIComponent(request.sessionId)}:invoke`
+    const wire = {
+      json: {
+        question: request.question,
+        ...(request.inputs === undefined ? {} : { inputs: request.inputs }),
+        ...(request.release === undefined ? {} : { release: request.release }),
+          ...(request.returnTrace === undefined ? {} : { returnTrace: request.returnTrace }),
+        stream: false,
+      },
+      options,
+      idempotencyRequired: true,
+    }
+    if (request.kind === 'chat') return this.transport.request('chatSessions.invoke', 'POST', path, wire)
+    return this.transport.request('agentSessions.invoke', 'POST', path, wire)
   }
 }
 
 export class AgentClient {
-  constructor(private readonly client: RagFlowTransport) {}
+  constructor(private readonly transport: BusinessGatewayTransport) {}
 
-  async list(request: ListAgentsRequest = {}, options: RequestOptions = {}): Promise<Agent[]> {
-    const data = await this.client.request<{ canvas: Agent[] }>('GET', '/agents', {
-      query: pageQuery(request), signal: options.signal,
-    })
-    return data.canvas
+  list(request: ListAgentsRequest = {}, options: RequestOptions = {}): Promise<GatewayResult<Agent[]>> {
+    return this.transport.requestEnvelope('agents.list', 'GET', '/agents', { query: pageQuery(request), options })
   }
 
   get(agentId: string, options: RequestOptions = {}): Promise<Agent> {
-    return this.client.request('GET', `/agents/${encodeURIComponent(agentId)}`, { signal: options.signal })
+    return this.transport.request('agents.get', 'GET', `/agents/${encodeURIComponent(agentId)}`, { options })
   }
 
-  async create(request: CreateAgentRequest, options: RequestOptions = {}): Promise<JsonValue> {
-    return await this.client.request('POST', '/agents', {
-      signal: options.signal,
-      body: {
-        title: request.title,
-        dsl: request.dsl,
-        ...(request.description === undefined ? {} : { description: request.description }),
-        ...(request.canvasType === undefined ? {} : { canvas_type: request.canvasType }),
-      },
-    })
+  create(request: CreateAgentRequest, options: RequestOptions): Promise<Agent> {
+    return this.transport.request('agents.create', 'POST', '/agents', { json: request, options, idempotencyRequired: true })
   }
 
-  async update(agentId: string, patch: JsonObject, options: RequestOptions = {}): Promise<void> {
-    await this.client.request('PUT', `/agents/${encodeURIComponent(agentId)}`, { body: patch, signal: options.signal })
+  update(agentId: string, patch: OperationBody<'agents.update'>, options: VersionedRequestOptions): Promise<Agent> {
+    return this.transport.request('agents.update', 'PATCH', `/agents/${encodeURIComponent(agentId)}`, { json: patch, options })
   }
 
-  async delete(agentId: string, options: RequestOptions = {}): Promise<void> {
-    await this.client.request('DELETE', `/agents/${encodeURIComponent(agentId)}`, { body: {}, signal: options.signal })
+  delete(agentId: string, options: VersionedRequestOptions): Promise<OperationData<'agents.delete'>> {
+    return this.transport.request('agents.delete', 'DELETE', `/agents/${encodeURIComponent(agentId)}`, { json: {}, options })
   }
 }
 
 export class MemoryClient {
-  constructor(private readonly client: RagFlowTransport) {}
+  constructor(private readonly transport: BusinessGatewayTransport) {}
 
-  create(request: CreateMemoryRequest, options: RequestOptions = {}): Promise<Memory> {
-    return this.client.request('POST', '/memories', {
-      signal: options.signal,
-      body: { name: request.name, memory_type: request.memoryType, embd_id: request.embdId, llm_id: request.llmId },
+  create(request: CreateMemoryRequest, options: RequestOptions): Promise<Memory> {
+    return this.transport.request('memories.create', 'POST', '/memories', { json: request, options, idempotencyRequired: true })
+  }
+
+  list(request: ListMemoriesRequest = {}, options: RequestOptions = {}): Promise<GatewayResult<Memory[]>> {
+    return this.transport.requestEnvelope('memories.list', 'GET', '/memories', {
+      query: { ...pageQuery(request), memoryType: request.memoryType, storageType: request.storageType, keywords: request.keywords },
+      options,
     })
   }
 
-  async list(request: ListMemoriesRequest = {}, options: RequestOptions = {}): Promise<MemoryList> {
-    const data = await this.client.request<{ memory_list: Memory[]; total_count: number }>('GET', '/memories', {
-      signal: options.signal,
-      query: {
-        page: request.page,
-        page_size: request.pageSize,
-        tenant_id: request.tenantId,
-        memory_type: request.memoryType,
-        storage_type: request.storageType,
-        keywords: request.keywords,
-      },
-    })
-    return { memoryList: data.memory_list, totalCount: data.total_count }
+  get(memoryId: string, options: RequestOptions = {}): Promise<Memory> {
+    return this.transport.request('memories.get', 'GET', `/memories/${encodeURIComponent(memoryId)}`, { options })
   }
 
-  update(memoryId: string, patch: JsonObject, options: RequestOptions = {}): Promise<Memory> {
-    return this.client.request('PUT', `/memories/${encodeURIComponent(memoryId)}`, { body: patch, signal: options.signal })
+  update(memoryId: string, patch: OperationBody<'memories.update'>, options: VersionedRequestOptions): Promise<Memory> {
+    return this.transport.request('memories.update', 'PATCH', `/memories/${encodeURIComponent(memoryId)}`, { json: patch, options })
   }
 
-  async delete(memoryId: string, options: RequestOptions = {}): Promise<void> {
-    await this.client.request('DELETE', `/memories/${encodeURIComponent(memoryId)}`, { body: {}, signal: options.signal })
+  delete(memoryId: string, options: VersionedRequestOptions): Promise<OperationData<'memories.delete'>> {
+    return this.transport.request('memories.delete', 'DELETE', `/memories/${encodeURIComponent(memoryId)}`, { json: {}, options })
   }
 
   getConfig(memoryId: string, options: RequestOptions = {}): Promise<Memory> {
-    return this.client.request('GET', `/memories/${encodeURIComponent(memoryId)}/config`, { signal: options.signal })
+    return this.transport.request('memories.getConfig', 'GET', `/memories/${encodeURIComponent(memoryId)}/config`, { options })
   }
+}
 
-  listMessages(memoryId: string, request: { agentId?: string | string[]; keywords?: string; page?: number; pageSize?: number } = {}, options: RequestOptions = {}): Promise<JsonValue> {
-    return this.client.request('GET', `/memories/${encodeURIComponent(memoryId)}`, {
-      signal: options.signal,
-      query: { agent_id: request.agentId, keywords: request.keywords, page: request.page, page_size: request.pageSize },
+export class MemoryMessageClient {
+  constructor(private readonly transport: BusinessGatewayTransport) {}
+
+  list(memoryId: string, request: PageRequest = {}, options: RequestOptions = {}): Promise<OperationResponse<'memoryMessages.list'>> {
+    return this.transport.requestEnvelope('memoryMessages.list', 'GET', `/memories/${encodeURIComponent(memoryId)}/messages`, {
+      query: pageQuery(request),
+      options,
     })
   }
 
-  async forgetMessage(memoryId: string, messageId: number, options: RequestOptions = {}): Promise<void> {
-    await this.client.request('DELETE', `/messages/${encodeURIComponent(memoryId)}:${messageId}`, { body: {}, signal: options.signal })
-  }
-
-  async updateMessageStatus(memoryId: string, messageId: number, status: boolean, options: RequestOptions = {}): Promise<void> {
-    await this.client.request('PUT', `/messages/${encodeURIComponent(memoryId)}:${messageId}`, { body: { status }, signal: options.signal })
-  }
-
-  getMessageContent(memoryId: string, messageId: number, options: RequestOptions = {}): Promise<JsonObject> {
-    return this.client.request('GET', `/messages/${encodeURIComponent(memoryId)}:${messageId}/content`, { signal: options.signal })
-  }
-
-  async addMessage(request: { memoryIds: string[]; agentId: string; sessionId: string; userInput: string; agentResponse: string; userId?: string }, options: RequestOptions = {}): Promise<string> {
-    const envelope = await this.client.requestEnvelope<never>('POST', '/messages', {
-      signal: options.signal,
-      body: {
-        memory_id: request.memoryIds,
-        agent_id: request.agentId,
-        session_id: request.sessionId,
-        user_input: request.userInput,
-        agent_response: request.agentResponse,
-        user_id: request.userId ?? '',
-      },
+  create(memoryId: string, request: OperationBody<'memoryMessages.create'>, options: RequestOptions): Promise<OperationData<'memoryMessages.create'>> {
+    return this.transport.request('memoryMessages.create', 'POST', `/memories/${encodeURIComponent(memoryId)}/messages`, {
+      json: request,
+      options,
+      idempotencyRequired: true,
     })
-    return envelope.message ?? ''
   }
 
-  searchMessages(request: SearchMemoryMessagesRequest, options: RequestOptions = {}): Promise<JsonObject[]> {
-    return this.client.request('GET', '/messages/search', {
-      signal: options.signal,
+  batchCreate(request: OperationBody<'memoryMessages.batchCreate'>, options: RequestOptions): Promise<OperationData<'memoryMessages.batchCreate'>> {
+    return this.transport.request('memoryMessages.batchCreate', 'POST', '/memory-messages:batch-create', {
+      json: request,
+      options,
+      idempotencyRequired: true,
+    })
+  }
+
+  update(memoryId: string, messageId: number, patch: OperationBody<'memoryMessages.update'>, options: VersionedRequestOptions): Promise<OperationData<'memoryMessages.update'>> {
+    return this.transport.request('memoryMessages.update', 'PATCH', `/memories/${encodeURIComponent(memoryId)}/messages/${messageId}`, { json: patch, options })
+  }
+
+  delete(memoryId: string, messageId: number, options: VersionedRequestOptions): Promise<OperationData<'memoryMessages.delete'>> {
+    return this.transport.request('memoryMessages.delete', 'DELETE', `/memories/${encodeURIComponent(memoryId)}/messages/${messageId}`, { json: {}, options })
+  }
+
+  getContent(memoryId: string, messageId: number, options: RequestOptions = {}): Promise<OperationData<'memoryMessages.getContent'>> {
+    return this.transport.request('memoryMessages.getContent', 'GET', `/memories/${encodeURIComponent(memoryId)}/messages/${messageId}/content`, { options })
+  }
+
+  search(request: SearchMemoryMessagesRequest, options: RequestOptions = {}): Promise<OperationData<'memoryMessages.search'>> {
+    return this.transport.request('memoryMessages.search', 'GET', '/memory-messages/search', {
       query: {
         query: request.query,
-        memory_id: request.memoryIds,
-        agent_id: request.agentId,
-        session_id: request.sessionId,
-        user_id: request.userId,
-        similarity_threshold: request.similarityThreshold,
-        keywords_similarity_weight: request.keywordsSimilarityWeight,
-        top_n: request.topN,
+        memoryIds: request.memoryIds,
+        agentId: request.agentId,
+        sessionId: request.sessionId,
+        similarityThreshold: request.similarityThreshold,
+        keywordsSimilarityWeight: request.keywordsSimilarityWeight,
+        topN: request.topN,
       },
+      options,
     })
   }
 
-  recentMessages(request: { memoryIds: string[]; agentId?: string; sessionId?: string; limit?: number }, options: RequestOptions = {}): Promise<JsonObject[]> {
-    return this.client.request('GET', '/messages', {
-      signal: options.signal,
-      query: { memory_id: request.memoryIds, agent_id: request.agentId, session_id: request.sessionId, limit: request.limit },
+  recent(request: OperationQuery<'memoryMessages.recent'>, options: RequestOptions = {}): Promise<OperationData<'memoryMessages.recent'>> {
+    return this.transport.request('memoryMessages.recent', 'GET', '/memory-messages/recent', {
+      query: { memoryIds: request.memoryIds, agentId: request.agentId, sessionId: request.sessionId, limit: request.limit },
+      options,
     })
   }
 }
 
 export class RetrievalClient {
-  constructor(private readonly client: RagFlowTransport) {}
+  constructor(private readonly transport: BusinessGatewayTransport) {}
 
-  async search(request: RetrieveRequest, options: RequestOptions = {}): Promise<RetrievalResult> {
-    return this.client.request<RetrievalResult>('POST', '/retrieval', {
-      signal: options.signal,
-      body: {
-        dataset_ids: request.datasetIds,
-        document_ids: request.documentIds ?? [],
+  search(request: RetrieveRequest, options: RequestOptions = {}): Promise<GatewayResult<RetrievalResult>> {
+    return this.transport.requestEnvelope('retrieval.search', 'POST', '/retrieval', {
+      json: {
         question: request.question,
-        page: request.page ?? 1,
-        page_size: request.pageSize ?? 30,
-        similarity_threshold: request.similarityThreshold ?? 0.2,
-        vector_similarity_weight: request.vectorSimilarityWeight ?? 0.3,
-        top_k: request.topK ?? 1024,
-        ...(request.rerankId === undefined ? {} : { rerank_id: request.rerankId }),
-        keyword: request.keyword ?? false,
-        ...(request.crossLanguages === undefined ? {} : { cross_languages: request.crossLanguages }),
-        ...(request.metadataCondition === undefined ? {} : { metadata_condition: request.metadataCondition }),
-        use_kg: request.useKg ?? false,
-        toc_enhance: request.tocEnhance ?? false,
+        ...(request.datasetIds === undefined ? {} : { datasetIds: request.datasetIds }),
+        ...(request.documentIds === undefined ? {} : { documentIds: request.documentIds }),
+        ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
+        ...(request.limit === undefined ? {} : { limit: request.limit }),
+        ...(request.similarityThreshold === undefined ? {} : { similarityThreshold: request.similarityThreshold }),
+        ...(request.vectorSimilarityWeight === undefined ? {} : { vectorSimilarityWeight: request.vectorSimilarityWeight }),
+        ...(request.topK === undefined ? {} : { topK: request.topK }),
+        ...(request.rerankId === undefined ? {} : { rerankId: request.rerankId }),
+        ...(request.keyword === undefined ? {} : { keyword: request.keyword }),
+        ...(request.crossLanguages === undefined ? {} : { crossLanguages: request.crossLanguages }),
+        ...(request.metadataCondition === undefined ? {} : { metadataCondition: request.metadataCondition }),
+        ...(request.useKg === undefined ? {} : { useKg: request.useKg }),
+        ...(request.tocEnhance === undefined ? {} : { tocEnhance: request.tocEnhance }),
         ...(request.highlight === undefined ? {} : { highlight: request.highlight }),
-        ...(request.referenceMetadata === undefined ? {} : { reference_metadata: request.referenceMetadata }),
+        ...(request.referenceMetadata === undefined ? {} : { referenceMetadata: request.referenceMetadata }),
       },
+      options,
     })
   }
 }

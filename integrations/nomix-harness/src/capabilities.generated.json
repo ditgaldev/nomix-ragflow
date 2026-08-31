@@ -1,0 +1,893 @@
+{
+  "standardVersion": "v1",
+  "service": "nomix-ragflow",
+  "plane": "data",
+  "operations": [
+    {
+      "operation": "authorization.context",
+      "method": "GET",
+      "path": "/gateway-context",
+      "requiredAction": "authorization:read",
+      "additionalRequiredActions": [],
+      "resourceType": "authorization",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "authorization.getContext",
+      "agentTool": "ragflow_discover",
+      "agentAction": "context"
+    },
+    {
+      "operation": "retrieval.search",
+      "method": "POST",
+      "path": "/retrieval",
+      "requiredAction": "knowledge:retrieve",
+      "additionalRequiredActions": [],
+      "resourceType": "knowledge",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "retrieval.search",
+      "agentTool": "ragflow_retrieval",
+      "agentAction": "search"
+    },
+    {
+      "operation": "datasets.list",
+      "method": "GET",
+      "path": "/datasets",
+      "requiredAction": "dataset:read",
+      "additionalRequiredActions": [],
+      "resourceType": "dataset",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "datasets.list",
+      "agentTool": "ragflow_manage_datasets",
+      "agentAction": "list"
+    },
+    {
+      "operation": "datasets.create",
+      "method": "POST",
+      "path": "/datasets",
+      "requiredAction": "dataset:create",
+      "additionalRequiredActions": [],
+      "resourceType": "dataset",
+      "risk": "write",
+      "idempotency": "required",
+      "clientMethod": "datasets.create",
+      "agentTool": "ragflow_manage_datasets",
+      "agentAction": "create"
+    },
+    {
+      "operation": "datasets.get",
+      "method": "GET",
+      "path": "/datasets/{datasetId}",
+      "requiredAction": "dataset:read",
+      "additionalRequiredActions": [],
+      "resourceType": "dataset",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "datasets.get",
+      "agentTool": "ragflow_manage_datasets",
+      "agentAction": "get"
+    },
+    {
+      "operation": "datasets.update",
+      "method": "PATCH",
+      "path": "/datasets/{datasetId}",
+      "requiredAction": "dataset:update",
+      "additionalRequiredActions": [],
+      "resourceType": "dataset",
+      "risk": "write",
+      "idempotency": "supported",
+      "clientMethod": "datasets.update",
+      "agentTool": "ragflow_manage_datasets",
+      "agentAction": "update"
+    },
+    {
+      "operation": "datasets.delete",
+      "method": "DELETE",
+      "path": "/datasets/{datasetId}",
+      "requiredAction": "dataset:delete",
+      "additionalRequiredActions": [],
+      "resourceType": "dataset",
+      "risk": "destructive",
+      "idempotency": "supported",
+      "clientMethod": "datasets.delete",
+      "agentTool": "ragflow_manage_datasets",
+      "agentAction": "delete"
+    },
+    {
+      "operation": "datasets.batchDelete",
+      "method": "POST",
+      "path": "/datasets:batch-delete",
+      "requiredAction": "dataset:delete",
+      "additionalRequiredActions": [],
+      "resourceType": "dataset",
+      "risk": "destructive",
+      "idempotency": "required",
+      "clientMethod": "datasets.batchDelete"
+    },
+    {
+      "operation": "datasets.getMetadataConfig",
+      "method": "GET",
+      "path": "/datasets/{datasetId}/metadata-config",
+      "requiredAction": "dataset:read",
+      "additionalRequiredActions": [],
+      "resourceType": "dataset",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "datasets.getMetadataConfig",
+      "agentTool": "ragflow_manage_documents",
+      "agentAction": "get_auto_metadata"
+    },
+    {
+      "operation": "datasets.updateMetadataConfig",
+      "method": "PUT",
+      "path": "/datasets/{datasetId}/metadata-config",
+      "requiredAction": "dataset:update",
+      "additionalRequiredActions": [],
+      "resourceType": "dataset",
+      "risk": "write",
+      "idempotency": "supported",
+      "clientMethod": "datasets.updateMetadataConfig",
+      "agentTool": "ragflow_manage_documents",
+      "agentAction": "update_auto_metadata"
+    },
+    {
+      "operation": "documents.list",
+      "method": "GET",
+      "path": "/datasets/{datasetId}/documents",
+      "requiredAction": "document:read",
+      "additionalRequiredActions": [
+        "dataset:read"
+      ],
+      "resourceType": "document",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "documents.list",
+      "agentTool": "ragflow_manage_documents",
+      "agentAction": "list"
+    },
+    {
+      "operation": "documents.upload",
+      "method": "POST",
+      "path": "/datasets/{datasetId}/documents",
+      "requiredAction": "document:upload",
+      "additionalRequiredActions": [
+        "dataset:read"
+      ],
+      "resourceType": "document",
+      "risk": "write",
+      "idempotency": "required",
+      "clientMethod": "documents.upload",
+      "agentTool": "ragflow_transfer_documents",
+      "agentAction": "upload"
+    },
+    {
+      "operation": "documents.get",
+      "method": "GET",
+      "path": "/datasets/{datasetId}/documents/{documentId}",
+      "requiredAction": "document:read",
+      "additionalRequiredActions": [
+        "dataset:read"
+      ],
+      "resourceType": "document",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "documents.get"
+    },
+    {
+      "operation": "documents.update",
+      "method": "PATCH",
+      "path": "/datasets/{datasetId}/documents/{documentId}",
+      "requiredAction": "document:update",
+      "additionalRequiredActions": [
+        "dataset:read"
+      ],
+      "resourceType": "document",
+      "risk": "write",
+      "idempotency": "supported",
+      "clientMethod": "documents.update",
+      "agentTool": "ragflow_manage_documents",
+      "agentAction": "update"
+    },
+    {
+      "operation": "documents.delete",
+      "method": "DELETE",
+      "path": "/datasets/{datasetId}/documents/{documentId}",
+      "requiredAction": "document:delete",
+      "additionalRequiredActions": [
+        "dataset:read"
+      ],
+      "resourceType": "document",
+      "risk": "destructive",
+      "idempotency": "supported",
+      "clientMethod": "documents.delete",
+      "agentTool": "ragflow_manage_documents",
+      "agentAction": "delete"
+    },
+    {
+      "operation": "documents.batchDelete",
+      "method": "POST",
+      "path": "/datasets/{datasetId}/documents:batch-delete",
+      "requiredAction": "document:delete",
+      "additionalRequiredActions": [
+        "dataset:read"
+      ],
+      "resourceType": "document",
+      "risk": "destructive",
+      "idempotency": "required",
+      "clientMethod": "documents.batchDelete"
+    },
+    {
+      "operation": "documents.download",
+      "method": "GET",
+      "path": "/datasets/{datasetId}/documents/{documentId}/content",
+      "requiredAction": "document:read",
+      "additionalRequiredActions": [
+        "dataset:read"
+      ],
+      "resourceType": "document",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "documents.download",
+      "agentTool": "ragflow_transfer_documents",
+      "agentAction": "download"
+    },
+    {
+      "operation": "documents.startParse",
+      "method": "POST",
+      "path": "/datasets/{datasetId}/documents:parse",
+      "requiredAction": "document:parse",
+      "additionalRequiredActions": [
+        "dataset:read"
+      ],
+      "resourceType": "document",
+      "risk": "write",
+      "idempotency": "required",
+      "clientMethod": "documents.startParse",
+      "agentTool": "ragflow_transfer_documents",
+      "agentAction": "start_parse"
+    },
+    {
+      "operation": "documents.cancelParse",
+      "method": "POST",
+      "path": "/datasets/{datasetId}/documents:cancel-parse",
+      "requiredAction": "document:parse",
+      "additionalRequiredActions": [
+        "dataset:read"
+      ],
+      "resourceType": "document",
+      "risk": "write",
+      "idempotency": "required",
+      "clientMethod": "documents.cancelParse",
+      "agentTool": "ragflow_transfer_documents",
+      "agentAction": "cancel_parse"
+    },
+    {
+      "operation": "chunks.list",
+      "method": "GET",
+      "path": "/datasets/{datasetId}/documents/{documentId}/chunks",
+      "requiredAction": "chunk:read",
+      "additionalRequiredActions": [
+        "dataset:read",
+        "document:read"
+      ],
+      "resourceType": "chunk",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "chunks.list",
+      "agentTool": "ragflow_manage_chunks",
+      "agentAction": "list"
+    },
+    {
+      "operation": "chunks.create",
+      "method": "POST",
+      "path": "/datasets/{datasetId}/documents/{documentId}/chunks",
+      "requiredAction": "chunk:create",
+      "additionalRequiredActions": [
+        "dataset:read",
+        "document:read"
+      ],
+      "resourceType": "chunk",
+      "risk": "write",
+      "idempotency": "required",
+      "clientMethod": "chunks.create",
+      "agentTool": "ragflow_manage_chunks",
+      "agentAction": "add"
+    },
+    {
+      "operation": "chunks.get",
+      "method": "GET",
+      "path": "/datasets/{datasetId}/documents/{documentId}/chunks/{chunkId}",
+      "requiredAction": "chunk:read",
+      "additionalRequiredActions": [
+        "dataset:read",
+        "document:read"
+      ],
+      "resourceType": "chunk",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "chunks.get"
+    },
+    {
+      "operation": "chunks.update",
+      "method": "PATCH",
+      "path": "/datasets/{datasetId}/documents/{documentId}/chunks/{chunkId}",
+      "requiredAction": "chunk:update",
+      "additionalRequiredActions": [
+        "dataset:read",
+        "document:read"
+      ],
+      "resourceType": "chunk",
+      "risk": "write",
+      "idempotency": "supported",
+      "clientMethod": "chunks.update",
+      "agentTool": "ragflow_manage_chunks",
+      "agentAction": "update"
+    },
+    {
+      "operation": "chunks.delete",
+      "method": "DELETE",
+      "path": "/datasets/{datasetId}/documents/{documentId}/chunks/{chunkId}",
+      "requiredAction": "chunk:delete",
+      "additionalRequiredActions": [
+        "dataset:read",
+        "document:read"
+      ],
+      "resourceType": "chunk",
+      "risk": "destructive",
+      "idempotency": "supported",
+      "clientMethod": "chunks.delete",
+      "agentTool": "ragflow_manage_chunks",
+      "agentAction": "delete"
+    },
+    {
+      "operation": "chunks.batchDelete",
+      "method": "POST",
+      "path": "/datasets/{datasetId}/documents/{documentId}/chunks:batch-delete",
+      "requiredAction": "chunk:delete",
+      "additionalRequiredActions": [
+        "dataset:read",
+        "document:read"
+      ],
+      "resourceType": "chunk",
+      "risk": "destructive",
+      "idempotency": "required",
+      "clientMethod": "chunks.batchDelete"
+    },
+    {
+      "operation": "chats.list",
+      "method": "GET",
+      "path": "/chats",
+      "requiredAction": "chat:read",
+      "additionalRequiredActions": [],
+      "resourceType": "chat",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "chats.list",
+      "agentTool": "ragflow_manage_chats",
+      "agentAction": "list"
+    },
+    {
+      "operation": "chats.create",
+      "method": "POST",
+      "path": "/chats",
+      "requiredAction": "chat:create",
+      "additionalRequiredActions": [],
+      "resourceType": "chat",
+      "risk": "write",
+      "idempotency": "required",
+      "clientMethod": "chats.create",
+      "agentTool": "ragflow_manage_chats",
+      "agentAction": "create"
+    },
+    {
+      "operation": "chats.get",
+      "method": "GET",
+      "path": "/chats/{chatId}",
+      "requiredAction": "chat:read",
+      "additionalRequiredActions": [],
+      "resourceType": "chat",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "chats.get",
+      "agentTool": "ragflow_manage_chats",
+      "agentAction": "get"
+    },
+    {
+      "operation": "chats.update",
+      "method": "PATCH",
+      "path": "/chats/{chatId}",
+      "requiredAction": "chat:update",
+      "additionalRequiredActions": [],
+      "resourceType": "chat",
+      "risk": "write",
+      "idempotency": "supported",
+      "clientMethod": "chats.update",
+      "agentTool": "ragflow_manage_chats",
+      "agentAction": "update"
+    },
+    {
+      "operation": "chats.delete",
+      "method": "DELETE",
+      "path": "/chats/{chatId}",
+      "requiredAction": "chat:delete",
+      "additionalRequiredActions": [],
+      "resourceType": "chat",
+      "risk": "destructive",
+      "idempotency": "supported",
+      "clientMethod": "chats.delete",
+      "agentTool": "ragflow_manage_chats",
+      "agentAction": "delete"
+    },
+    {
+      "operation": "chats.batchDelete",
+      "method": "POST",
+      "path": "/chats:batch-delete",
+      "requiredAction": "chat:delete",
+      "additionalRequiredActions": [],
+      "resourceType": "chat",
+      "risk": "destructive",
+      "idempotency": "required",
+      "clientMethod": "chats.batchDelete"
+    },
+    {
+      "operation": "chatSessions.list",
+      "method": "GET",
+      "path": "/chats/{chatId}/sessions",
+      "requiredAction": "session:read",
+      "additionalRequiredActions": [
+        "chat:read"
+      ],
+      "resourceType": "session",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "sessions.list",
+      "agentTool": "ragflow_manage_sessions",
+      "agentAction": "list",
+      "agentKind": "chat"
+    },
+    {
+      "operation": "chatSessions.create",
+      "method": "POST",
+      "path": "/chats/{chatId}/sessions",
+      "requiredAction": "session:create",
+      "additionalRequiredActions": [
+        "chat:read"
+      ],
+      "resourceType": "session",
+      "risk": "write",
+      "idempotency": "required",
+      "clientMethod": "sessions.create",
+      "agentTool": "ragflow_manage_sessions",
+      "agentAction": "create",
+      "agentKind": "chat"
+    },
+    {
+      "operation": "chatSessions.get",
+      "method": "GET",
+      "path": "/chats/{chatId}/sessions/{sessionId}",
+      "requiredAction": "session:read",
+      "additionalRequiredActions": [
+        "chat:read"
+      ],
+      "resourceType": "session",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "sessions.get"
+    },
+    {
+      "operation": "chatSessions.update",
+      "method": "PATCH",
+      "path": "/chats/{chatId}/sessions/{sessionId}",
+      "requiredAction": "session:update",
+      "additionalRequiredActions": [
+        "chat:read"
+      ],
+      "resourceType": "session",
+      "risk": "write",
+      "idempotency": "supported",
+      "clientMethod": "sessions.update",
+      "agentTool": "ragflow_manage_sessions",
+      "agentAction": "update",
+      "agentKind": "chat"
+    },
+    {
+      "operation": "chatSessions.delete",
+      "method": "DELETE",
+      "path": "/chats/{chatId}/sessions/{sessionId}",
+      "requiredAction": "session:delete",
+      "additionalRequiredActions": [
+        "chat:read"
+      ],
+      "resourceType": "session",
+      "risk": "destructive",
+      "idempotency": "supported",
+      "clientMethod": "sessions.delete",
+      "agentTool": "ragflow_manage_sessions",
+      "agentAction": "delete",
+      "agentKind": "chat"
+    },
+    {
+      "operation": "chatSessions.batchDelete",
+      "method": "POST",
+      "path": "/chats/{chatId}/sessions:batch-delete",
+      "requiredAction": "session:delete",
+      "additionalRequiredActions": [
+        "chat:read"
+      ],
+      "resourceType": "session",
+      "risk": "destructive",
+      "idempotency": "required",
+      "clientMethod": "sessions.batchDelete"
+    },
+    {
+      "operation": "chatSessions.invoke",
+      "method": "POST",
+      "path": "/chats/{chatId}/sessions/{sessionId}:invoke",
+      "requiredAction": "session:invoke",
+      "additionalRequiredActions": [
+        "session:read",
+        "chat:read",
+        "knowledge:retrieve"
+      ],
+      "resourceType": "session",
+      "risk": "write",
+      "idempotency": "required",
+      "clientMethod": "sessions.invoke",
+      "agentTool": "ragflow_manage_sessions",
+      "agentAction": "ask",
+      "agentKind": "chat"
+    },
+    {
+      "operation": "agents.list",
+      "method": "GET",
+      "path": "/agents",
+      "requiredAction": "agent:read",
+      "additionalRequiredActions": [],
+      "resourceType": "agent",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "agents.list",
+      "agentTool": "ragflow_manage_agents",
+      "agentAction": "list"
+    },
+    {
+      "operation": "agents.create",
+      "method": "POST",
+      "path": "/agents",
+      "requiredAction": "agent:create",
+      "additionalRequiredActions": [],
+      "resourceType": "agent",
+      "risk": "write",
+      "idempotency": "required",
+      "clientMethod": "agents.create",
+      "agentTool": "ragflow_manage_agents",
+      "agentAction": "create"
+    },
+    {
+      "operation": "agents.get",
+      "method": "GET",
+      "path": "/agents/{agentId}",
+      "requiredAction": "agent:read",
+      "additionalRequiredActions": [],
+      "resourceType": "agent",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "agents.get",
+      "agentTool": "ragflow_manage_agents",
+      "agentAction": "get"
+    },
+    {
+      "operation": "agents.update",
+      "method": "PATCH",
+      "path": "/agents/{agentId}",
+      "requiredAction": "agent:update",
+      "additionalRequiredActions": [],
+      "resourceType": "agent",
+      "risk": "write",
+      "idempotency": "supported",
+      "clientMethod": "agents.update",
+      "agentTool": "ragflow_manage_agents",
+      "agentAction": "update"
+    },
+    {
+      "operation": "agents.delete",
+      "method": "DELETE",
+      "path": "/agents/{agentId}",
+      "requiredAction": "agent:delete",
+      "additionalRequiredActions": [],
+      "resourceType": "agent",
+      "risk": "destructive",
+      "idempotency": "supported",
+      "clientMethod": "agents.delete",
+      "agentTool": "ragflow_manage_agents",
+      "agentAction": "delete"
+    },
+    {
+      "operation": "agentSessions.list",
+      "method": "GET",
+      "path": "/agents/{agentId}/sessions",
+      "requiredAction": "session:read",
+      "additionalRequiredActions": [
+        "agent:read"
+      ],
+      "resourceType": "session",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "sessions.list",
+      "agentTool": "ragflow_manage_sessions",
+      "agentAction": "list",
+      "agentKind": "agent"
+    },
+    {
+      "operation": "agentSessions.create",
+      "method": "POST",
+      "path": "/agents/{agentId}/sessions",
+      "requiredAction": "session:create",
+      "additionalRequiredActions": [
+        "agent:read"
+      ],
+      "resourceType": "session",
+      "risk": "write",
+      "idempotency": "required",
+      "clientMethod": "sessions.create",
+      "agentTool": "ragflow_manage_sessions",
+      "agentAction": "create",
+      "agentKind": "agent"
+    },
+    {
+      "operation": "agentSessions.get",
+      "method": "GET",
+      "path": "/agents/{agentId}/sessions/{sessionId}",
+      "requiredAction": "session:read",
+      "additionalRequiredActions": [
+        "agent:read"
+      ],
+      "resourceType": "session",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "sessions.get"
+    },
+    {
+      "operation": "agentSessions.delete",
+      "method": "DELETE",
+      "path": "/agents/{agentId}/sessions/{sessionId}",
+      "requiredAction": "session:delete",
+      "additionalRequiredActions": [
+        "agent:read"
+      ],
+      "resourceType": "session",
+      "risk": "destructive",
+      "idempotency": "supported",
+      "clientMethod": "sessions.delete",
+      "agentTool": "ragflow_manage_sessions",
+      "agentAction": "delete",
+      "agentKind": "agent"
+    },
+    {
+      "operation": "agentSessions.batchDelete",
+      "method": "POST",
+      "path": "/agents/{agentId}/sessions:batch-delete",
+      "requiredAction": "session:delete",
+      "additionalRequiredActions": [
+        "agent:read"
+      ],
+      "resourceType": "session",
+      "risk": "destructive",
+      "idempotency": "required",
+      "clientMethod": "sessions.batchDelete"
+    },
+    {
+      "operation": "agentSessions.invoke",
+      "method": "POST",
+      "path": "/agents/{agentId}/sessions/{sessionId}:invoke",
+      "requiredAction": "session:invoke",
+      "additionalRequiredActions": [
+        "session:read",
+        "agent:read",
+        "knowledge:retrieve"
+      ],
+      "resourceType": "session",
+      "risk": "write",
+      "idempotency": "required",
+      "clientMethod": "sessions.invoke",
+      "agentTool": "ragflow_manage_sessions",
+      "agentAction": "ask",
+      "agentKind": "agent"
+    },
+    {
+      "operation": "memories.list",
+      "method": "GET",
+      "path": "/memories",
+      "requiredAction": "memory:read",
+      "additionalRequiredActions": [],
+      "resourceType": "memory",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "memories.list",
+      "agentTool": "ragflow_manage_memories",
+      "agentAction": "list"
+    },
+    {
+      "operation": "memories.create",
+      "method": "POST",
+      "path": "/memories",
+      "requiredAction": "memory:create",
+      "additionalRequiredActions": [],
+      "resourceType": "memory",
+      "risk": "write",
+      "idempotency": "required",
+      "clientMethod": "memories.create",
+      "agentTool": "ragflow_manage_memories",
+      "agentAction": "create"
+    },
+    {
+      "operation": "memories.get",
+      "method": "GET",
+      "path": "/memories/{memoryId}",
+      "requiredAction": "memory:read",
+      "additionalRequiredActions": [],
+      "resourceType": "memory",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "memories.get"
+    },
+    {
+      "operation": "memories.update",
+      "method": "PATCH",
+      "path": "/memories/{memoryId}",
+      "requiredAction": "memory:update",
+      "additionalRequiredActions": [],
+      "resourceType": "memory",
+      "risk": "write",
+      "idempotency": "supported",
+      "clientMethod": "memories.update",
+      "agentTool": "ragflow_manage_memories",
+      "agentAction": "update"
+    },
+    {
+      "operation": "memories.delete",
+      "method": "DELETE",
+      "path": "/memories/{memoryId}",
+      "requiredAction": "memory:delete",
+      "additionalRequiredActions": [],
+      "resourceType": "memory",
+      "risk": "destructive",
+      "idempotency": "supported",
+      "clientMethod": "memories.delete",
+      "agentTool": "ragflow_manage_memories",
+      "agentAction": "delete"
+    },
+    {
+      "operation": "memories.getConfig",
+      "method": "GET",
+      "path": "/memories/{memoryId}/config",
+      "requiredAction": "memory:read",
+      "additionalRequiredActions": [],
+      "resourceType": "memory",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "memories.getConfig",
+      "agentTool": "ragflow_manage_memories",
+      "agentAction": "get_config"
+    },
+    {
+      "operation": "memoryMessages.list",
+      "method": "GET",
+      "path": "/memories/{memoryId}/messages",
+      "requiredAction": "memory-message:read",
+      "additionalRequiredActions": [
+        "memory:read"
+      ],
+      "resourceType": "memory-message",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "memoryMessages.list",
+      "agentTool": "ragflow_manage_memories",
+      "agentAction": "list_messages"
+    },
+    {
+      "operation": "memoryMessages.create",
+      "method": "POST",
+      "path": "/memories/{memoryId}/messages",
+      "requiredAction": "memory-message:create",
+      "additionalRequiredActions": [
+        "memory:read"
+      ],
+      "resourceType": "memory-message",
+      "risk": "write",
+      "idempotency": "required",
+      "clientMethod": "memoryMessages.create"
+    },
+    {
+      "operation": "memoryMessages.batchCreate",
+      "method": "POST",
+      "path": "/memory-messages:batch-create",
+      "requiredAction": "memory-message:create",
+      "additionalRequiredActions": [
+        "memory:read"
+      ],
+      "resourceType": "memory-message",
+      "risk": "write",
+      "idempotency": "required",
+      "clientMethod": "memoryMessages.batchCreate",
+      "agentTool": "ragflow_manage_memories",
+      "agentAction": "add_message"
+    },
+    {
+      "operation": "memoryMessages.search",
+      "method": "GET",
+      "path": "/memory-messages/search",
+      "requiredAction": "memory-message:read",
+      "additionalRequiredActions": [
+        "memory:read"
+      ],
+      "resourceType": "memory-message",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "memoryMessages.search",
+      "agentTool": "ragflow_manage_memories",
+      "agentAction": "search_messages"
+    },
+    {
+      "operation": "memoryMessages.recent",
+      "method": "GET",
+      "path": "/memory-messages/recent",
+      "requiredAction": "memory-message:read",
+      "additionalRequiredActions": [
+        "memory:read"
+      ],
+      "resourceType": "memory-message",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "memoryMessages.recent",
+      "agentTool": "ragflow_manage_memories",
+      "agentAction": "recent_messages"
+    },
+    {
+      "operation": "memoryMessages.getContent",
+      "method": "GET",
+      "path": "/memories/{memoryId}/messages/{messageId}/content",
+      "requiredAction": "memory-message:read",
+      "additionalRequiredActions": [
+        "memory:read"
+      ],
+      "resourceType": "memory-message",
+      "risk": "read",
+      "idempotency": "none",
+      "clientMethod": "memoryMessages.getContent",
+      "agentTool": "ragflow_manage_memories",
+      "agentAction": "get_message_content"
+    },
+    {
+      "operation": "memoryMessages.update",
+      "method": "PATCH",
+      "path": "/memories/{memoryId}/messages/{messageId}",
+      "requiredAction": "memory-message:update",
+      "additionalRequiredActions": [
+        "memory:read"
+      ],
+      "resourceType": "memory-message",
+      "risk": "write",
+      "idempotency": "supported",
+      "clientMethod": "memoryMessages.update",
+      "agentTool": "ragflow_manage_memories",
+      "agentAction": "update_message_status"
+    },
+    {
+      "operation": "memoryMessages.delete",
+      "method": "DELETE",
+      "path": "/memories/{memoryId}/messages/{messageId}",
+      "requiredAction": "memory-message:delete",
+      "additionalRequiredActions": [
+        "memory:read"
+      ],
+      "resourceType": "memory-message",
+      "risk": "destructive",
+      "idempotency": "supported",
+      "clientMethod": "memoryMessages.delete",
+      "agentTool": "ragflow_manage_memories",
+      "agentAction": "forget_message"
+    }
+  ]
+}

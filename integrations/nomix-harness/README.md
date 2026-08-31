@@ -1,7 +1,8 @@
 # @nomix-ai/nomix-ragflow
 
-Typed RAGFlow REST client and Nomix Harness plugin. The package connects to an
-existing RAGFlow deployment; it does not bundle or start RAGFlow.
+Typed client and Nomix Harness plugin for the RAGFlow Business Gateway. Both
+entry points call the same public Gateway plane; neither connects to RAGFlow's
+original API or accepts a RAGFlow API key.
 
 ## Install
 
@@ -9,90 +10,178 @@ existing RAGFlow deployment; it does not bundle or start RAGFlow.
 npm install @nomix-ai/nomix-ragflow
 ```
 
-The package targets Node.js `^22.19 || >=24`. The plugin entry targets Nomix
-Harness `^0.2.5` and resolves Cordis, Schemastery, and other plugin-runtime
-modules from the Harness embedded kernel instead of installing private copies.
+The package targets Node.js `^22.19 || >=24`. The plugin targets Nomix Harness
+`^0.2.5` and resolves its runtime dependencies from the Harness kernel.
 
 ## TypeScript client
 
-```ts
-import { RagFlowClient } from '@nomix-ai/nomix-ragflow'
+`baseURL` is the dedicated Business Gateway service root and must not contain
+`/api/v1`. The client adds that public prefix itself. `accessToken` can be a
+string or an asynchronous provider; providers are evaluated for every request,
+so token rotation does not require recreating the client.
 
-const ragflow = new RagFlowClient({
-  baseURL: 'https://ragflow.example.com',
-  apiKey: process.env.RAGFLOW_API_KEY!,
+```ts
+import { RagFlowBusinessClient } from '@nomix-ai/nomix-ragflow/client'
+
+const ragflow = new RagFlowBusinessClient({
+  baseURL: 'https://ragflow-business.example.com',
+  accessToken: async () => businessIdentity.getAccessToken(),
+  timeoutMs: 60_000,
+  maxResponseBytes: 16 * 1024 * 1024,
 })
 
-const datasets = await ragflow.datasets.list({ page: 1, pageSize: 20 })
-const result = await ragflow.retrieval.search({
-  datasetIds: [datasets[0].id],
+const authorization = await ragflow.authorization.getContext()
+const datasets = await ragflow.datasets.list({ limit: 20 })
+const retrieval = await ragflow.retrieval.search({
   question: 'What changed in the latest release?',
 })
+console.log(datasets.data, datasets.meta.nextCursor)
+console.log(retrieval.data.chunks, retrieval.meta.nextCursor)
 ```
 
-Every REST method accepts `{ signal }`. Non-zero RAGFlow envelopes and HTTP
-failures throw `RagFlowApiError`; credentials are never included in error text.
+Every request supports `AbortSignal`. Required write operations also require an
+`idempotencyKey`. Updates and single-resource deletes require the latest returned
+`version` in RequestOptions; the client sends it as `If-Match`. Gateway failures
+throw `BusinessGatewayError` with `code`, `status`, `requestId`, `details`,
+`retryable`, and optional `retryAfterMs`; timeout and cancellation remain active
+until the complete response body has been consumed. The client has no option for
+trusted tenant, workspace, subject, action, scope, or arbitrary authorization
+headers; those values come exclusively from the verified business token.
+Paginated list methods and retrieval retain the Gateway `{ data, meta }`
+envelope so callers can pass `meta.nextCursor` to the next request.
+Success bodies are streamed into a bounded buffer (16 MiB by default, 64 MiB
+hard maximum); Gateway error bodies have a separate 64 KiB parsing ceiling.
+`RequestOptions.maxResponseBytes` may lower the configured ceiling for one
+request, but cannot raise it.
 
-## Nomix Harness profile
+## Nomix Harness plugin
 
-Install the bundle into the profile that owns your Harness configuration:
+Install the bundle into the profile that owns the Harness configuration:
 
 ```bash
 nomix plugin --profile my-profile add @nomix-ai/nomix-ragflow
 ```
 
-The bundle inserts a disabled `ragflow` Cordis row because deployment credentials
-cannot be guessed. Enable and configure it in that profile's own
-`cordis.patch.yml` (profile patches are applied after bundle patches):
+The bundle mounts the inert provider-neutral `ragflow-service` definition and
+inserts a disabled `ragflow` composition row. Enable the composition in that
+profile's `cordis.patch.yml` and explicitly select its Agents:
 
 ```yaml
 - id: ragflow
   disabled: false
   config:
-    baseURL: https://ragflow.example.com
-    apiKeyRef: RAGFLOW_API_KEY
+    baseURL: https://ragflow-business.example.com
+    accessTokenRef: RAGFLOW_BUSINESS_ACCESS_TOKEN
+    requestTimeoutMs: 60000
+    agentPresets:
+      - knowledge-worker
     workspaceRoot: .
-    maxFileBytes: 536870912
+    # Agent file reads are memory-bounded and capped at 64 MiB.
+    maxFileBytes: 67108864
+    artifactMaxBytes: 10485760
 ```
 
-Store `RAGFLOW_API_KEY` through the Harness credential provider. The plugin
-resolves `apiKeyRef` for every REST request, so credential rotation takes effect
-without restarting the plugin and the secret never enters Cordis configuration.
+Store `RAGFLOW_BUSINESS_ACCESS_TOKEN` in the Harness credential provider. The
+integration follows the same Service Definition / Provider / Consumer boundary
+as `nomix-crm`: the Provider resolves the reference exactly once from the
+calling Agent/session context for each tool operation, then creates an
+operation-local `RagFlowBusinessClient`. The next operation observes token
+rotation. Credentials are never resolved or cached in the process-global
+Consumer context. Provider selection is explicit through `providerId`, or fails
+closed unless exactly one available Provider exists.
 
-The plugin connects directly to RAGFlow's REST API. It publishes
-`ragflow_retrieval` plus eight action-based management tools for datasets,
-documents, transfers, chunks, chats, sessions, agents, and memories. Retrieval
-searches selected datasets or, when `datasetIds` is omitted, all datasets
-accessible to the configured key. Cordis replaces a row's complete `config`
-object, so repeat the other values you need when applying a later override.
+The Consumer is installed in each selected Agent scope. Root-scoped tools are
+not registered. Use `agentPresets` as an allow-list, or set
+`attachToAllAgents: true` explicitly; omitting both is a configuration error.
+Tool registration, approval listeners, filesystem access, spill ownership, and
+cleanup all follow that Agent's lifecycle.
 
-Delete, bulk delete, `deleteAll`, memory forget, and parse cancellation actions
-return a one-time Harness approval request before the REST call. If approval is
-unavailable, denied, cancelled, or disabled by policy, the call fails closed.
-Direct application calls to `RagFlowClient` do not pass through model approval.
+The Harness tool deadline is derived from `requestTimeoutMs` plus a fixed
+30-second allowance for Agent credential lookup and bounded artifact handling.
+The HTTP request still stops at `requestTimeoutMs`; the extra allowance does not
+extend Gateway network access.
 
-Document uploads accept only paths contained by `workspaceRoot`, reject
-symlinks, enforce `maxFileBytes`, and read bytes through the Harness filesystem
-policy before sending them over REST. Download-to-workspace is intentionally not
-exposed until Harness provides a sandbox-aware binary write capability.
+The plugin marks requests as `agent` for audit classification only; standalone
+clients default to `rest`. That closed marker never affects identity, actions,
+workspace, or data scope. REST and Agent calls use the same authorization path.
+
+The ten tools include `ragflow_discover` plus retrieval, datasets, documents,
+transfers, chunks, chats, sessions, agents, and memories. Discovery returns only
+a redacted authorization summary (availability, authentication shape, action
+count, and scope modes/counts); it never exposes subjects, workspace IDs,
+permission references, action names, or raw scope IDs. Every Agent write must
+include a caller-stable business `operationId` and requests one-time pre-execute
+approval. Retry the same uncertain business intent with the same `operationId`,
+even when Harness assigns a new tool call ID; the plugin derives the same
+Agent/operation-bound idempotency key. A distinct intent must use a distinct
+`operationId`. Approval shows bounded target IDs, artifact path, version, field
+names, and intent ID. It is an additional human gate only: the Gateway still
+enforces the token's action and resource scope. Read operations are
+parallel-safe; writes are scheduled exclusively. Tool outputs use a closed,
+discriminated `status`, `summary`, `data`, `nextActions`, and `artifacts`
+contract. Small JSON is represented as typed JSON-pointer entries. Larger
+results are stored in the Agent/session spill plane and only an artifact
+reference is exposed to the model.
+
+Agent operation bindings and all-write approval are derived from the canonical
+capability manifest. Harness metadata also declares Agent/provider selection,
+credential resolution, discovery redaction, idempotency ownership, timeout
+composition, output shape, and artifact limits; it is descriptive and grants no
+permission. Public request/query/path and operation-specific response types are
+generated from the Gateway OpenAPI contract. Responses are validated against
+the selected operation before the Client returns them; no list-wrapper or
+invoke-field guessing remains. `npm run contracts:check` prevents npm/server drift.
+
+Uploads are read only through the owning Agent's filesystem Provider. Their
+`workspaceRoot` is relative to the session cwd; path traversal, final-component
+symlinks, symlink escape, and `maxFileBytes` violations are rejected. Agent
+deletes accept one explicit ID and its current version. REST/Client batch
+operations require explicit bounded ID lists; there is no implicit `deleteAll`.
+
+Harness does not currently expose a workspace-safe binary streaming reader, so
+Agent uploads materialize the file in memory. The plugin default and hard ceiling
+are both 64 MiB, and the upload path avoids an extra full-size `Uint8Array` copy
+before constructing the `Blob`. Use the business REST upload path for larger
+files and raise the Gateway file, complete-request, and proxy budgets together;
+the plugin never bypasses Harness fs to read a host path directly.
+
+Authorized downloads never convert a Harness path into a host Node path. They
+are persisted with session ownership in the Harness spill plane. Harness 0.2.5
+exposes a text-only SpillStore, so the raw binary limit is computed before
+download as `floor(artifactMaxBytes / 4) * 3`; the encoded artifact cannot exceed
+`artifactMaxBytes`. Binary
+downloads use an honest `.base64` text artifact fallback carrying the original
+name, media type, size, and digest. Base64 content is never embedded in the
+model-visible tool result. A future native binary artifact Provider can replace
+this fallback without changing the Gateway Client or tool contract.
 
 ## Exports
 
-The package root and `@nomix-ai/nomix-ragflow/client` export the standalone
-REST client without requiring Harness. The Cordis Loader uses
-`@nomix-ai/nomix-ragflow/plugin`, whose named exports are `name`, `inject`,
-`Config`, and `apply`; it has no default export. This plugin entry must run
-inside Harness so its external `@nomix-ai/*` imports resolve from the embedded
-kernel.
+- Package root: client, types, errors, and manifest.
+- `./client`: standalone `RagFlowBusinessClient`.
+- `./plugin`: Harness lifecycle entry (`name`, `inject`, `Config`, `apply`).
+- `./types`: shared public types.
+- `./errors`: `BusinessGatewayError`.
+- `./manifest`: the canonical Business Gateway capability snapshot.
+- `./service`: inert provider-neutral `RagFlowRuntime` capability seam.
+- `./provider`: Business Gateway endpoint and Agent credential binding.
+- `./consumer`: Agent-scoped tools, approvals, fs, and artifact integration.
+
+## Breaking migration from 0.x
+
+Version 1 removes `RagFlowClient`, `RagFlowApiError`, `apiKey`, `apiKeyRef`,
+`apiVersion`, original-API paths, and direct-connect fallback. Replace the old
+RAGFlow service URL with the dedicated Gateway service root and replace the raw
+API key with a business access token (or credential reference). There is no
+compatibility mode.
+
+The full server deployment, permission, action, scope, audit, and network-boundary
+guide lives in the RAGFlow repository's Business Gateway documentation.
 
 Licensed under Apache-2.0.
 
 ## Release
 
-Create the GitHub Environment `npm-publish`, grant `@nomix-ai` publish access
-to this package, and add a fine-grained `NPM_TOKEN` secret with publish and
-2FA-bypass permission. Push the release commit to `npm-nomix-ragflow`; the
-workflow reads the version from `package.json`, verifies Linux, Windows, and
-macOS, and then publishes the Linux artifact. Pull requests and `nomix-v*`
-tags run the same verification without publishing. Existing npm versions are
-rejected and publication uses npm provenance.
+Create the GitHub Environment `npm-publish`, grant `@nomix-ai` publish access,
+and add a fine-grained `NPM_TOKEN` with publish and 2FA-bypass permission. The
+release workflow verifies supported platforms before publishing with provenance.

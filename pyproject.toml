@@ -330,6 +330,7 @@ markers = [
     "smoke: smoke test cases",
     "auth: authentication UI tests",
     "asyncio: mark test as async",
+    "integration: requires an explicitly configured real external service",
 ]
 
 # Test collection and runtime configuration

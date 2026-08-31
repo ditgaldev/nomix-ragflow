@@ -1,0 +1,46 @@
+groups:
+  - name: nomix-ragflow-business-gateway
+    rules:
+      - alert: RagFlowBusinessGatewayNotReady
+        expr: nomix_ragflow_business_gateway_ready == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: RAGFlow Business Gateway replica is not ready
+          description: Readiness has failed for more than two minutes; stop rollout and inspect the failed dependency checks before restoring traffic.
+          runbook: docs/develop/business_gateway_integration.md#production-release-runbook
+      - alert: RagFlowBusinessGatewayUncertainIdempotency
+        expr: nomix_ragflow_business_gateway_uncertain_idempotency_records > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: A Gateway write requires idempotency reconciliation
+          description: At least one write crossed the side-effect boundary without a durable replay result. Automatic retry is closed until an administrator reconciles it.
+          runbook: docs/develop/business_gateway_integration.md#idempotency-reconciliation-runbook
+      - alert: RagFlowBusinessGatewayStuckExecution
+        expr: nomix_ragflow_business_gateway_stale_executing_idempotency_records > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: A Gateway write has remained beyond the safe retry boundary
+          description: An execution has remained in progress for more than 30 minutes and must be investigated as an unknown outcome.
+          runbook: docs/develop/business_gateway_integration.md#idempotency-reconciliation-runbook
+      - alert: RagFlowBusinessGatewayAuditFailure
+        expr: increase(nomix_ragflow_business_gateway_failures_total{component="audit"}[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Business Gateway audit persistence failed
+          description: Stop write traffic until append-only audit persistence is healthy; successful writes must not proceed without their audit event.
+          runbook: docs/develop/business_gateway_integration.md#production-release-runbook
+      - alert: RagFlowBusinessGatewayIntrospectionFailure
+        expr: increase(nomix_ragflow_business_gateway_failures_total{component="introspection"}[5m]) > 2
+        labels:
+          severity: warning
+        annotations:
+          summary: Business access-token introspection is failing
+          description: The Gateway is failing closed because the configured identity authority cannot reliably validate business tokens.
+          runbook: docs/develop/business_gateway_integration.md#production-release-runbook

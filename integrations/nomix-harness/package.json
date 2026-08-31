@@ -1,9 +1,10 @@
 {
   "name": "@nomix-ai/nomix-ragflow",
-  "version": "0.2.0",
-  "description": "RAGFlow client and Nomix Harness plugin",
+  "version": "1.0.0",
+  "description": "Nomix RAGFlow Business Gateway client and Agent-scoped Harness integration",
   "license": "Apache-2.0",
   "type": "module",
+  "sideEffects": false,
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -19,11 +20,36 @@
       "types": "./lib/plugin.d.ts",
       "default": "./lib/plugin.js"
     },
+    "./types": {
+      "types": "./lib/types.d.ts",
+      "default": "./lib/types.js"
+    },
+    "./errors": {
+      "types": "./lib/errors.d.ts",
+      "default": "./lib/errors.js"
+    },
+    "./manifest": {
+      "types": "./lib/manifest.d.ts",
+      "default": "./lib/manifest.js"
+    },
+    "./service": {
+      "types": "./lib/service.d.ts",
+      "default": "./lib/service.js"
+    },
+    "./provider": {
+      "types": "./lib/provider.d.ts",
+      "default": "./lib/provider.js"
+    },
+    "./consumer": {
+      "types": "./lib/consumer.d.ts",
+      "default": "./lib/consumer.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
     "lib/**/*.js",
     "lib/**/*.d.ts",
+    "lib/**/*.json",
     "cordis.patch.yml",
     "README.md",
     "README.zh.md",
@@ -47,13 +73,15 @@
     }
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "npm run clean && tsc -p tsconfig.build.json",
     "clean": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\"",
     "lint": "oxlint src tests scripts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "harness:link": "node scripts/link-harness-kernel.mjs",
-    "verify": "npm run harness:link && npm run typecheck && npm run lint && npm run test && npm run build",
+    "contracts:generate": "node scripts/generate-openapi-types.mjs",
+    "contracts:check": "node scripts/generate-openapi-types.mjs --check",
+    "verify": "npm run harness:link && npm run contracts:check && npm run typecheck && npm run lint && npm run test && npm run build",
     "prepack": "npm run verify"
   },
   "peerDependencies": {
@@ -68,7 +96,6 @@
     "@nomix-ai/nomix-harness": "0.2.5",
     "@types/node": "24.5.2",
     "oxlint": "1.14.0",
-    "tsdown": "0.15.4",
     "typescript": "5.9.2",
     "vitest": "3.2.4"
   }
