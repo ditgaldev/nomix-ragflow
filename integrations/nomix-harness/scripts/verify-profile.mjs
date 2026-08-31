@@ -31,11 +31,14 @@ const dump = execFileSync(process.execPath, [cli, '--profile', 'ragflow-audit', 
   env,
   encoding: 'utf8',
 })
-const rowStart = dump.indexOf('- id: ragflow')
-if (rowStart < 0) throw new Error('composed profile is missing the ragflow row')
-const nextRow = dump.indexOf('\n- id:', rowStart + 1)
-const row = dump.slice(rowStart, nextRow < 0 ? undefined : nextRow)
-if (!/name:\s*['"]?@nomix-ai\/nomix-ragflow\/plugin['"]?/.test(row)) throw new Error('composed profile does not load the plugin subpath')
-if (!/disabled:\s*true/.test(row)) throw new Error('bundle must install disabled until deployment configuration is supplied')
+const rows = dump.split(/\r?\n(?=- id: )/u)
+const rowFor = id => rows.find(row => row.split(/\r?\n/u, 1)[0]?.trim() === `- id: ${id}`)
+const serviceRow = rowFor('ragflow-service')
+const compositionRow = rowFor('ragflow')
+if (!serviceRow) throw new Error('composed profile is missing the ragflow-service row')
+if (!compositionRow) throw new Error('composed profile is missing the ragflow row')
+if (!/name:\s*['"]?@nomix-ai\/nomix-ragflow\/service['"]?/.test(serviceRow)) throw new Error('composed profile does not load the service subpath')
+if (!/name:\s*['"]?@nomix-ai\/nomix-ragflow\/plugin['"]?/.test(compositionRow)) throw new Error('composed profile does not load the plugin subpath')
+if (!/disabled:\s*true/.test(compositionRow)) throw new Error('bundle must install disabled until deployment configuration is supplied')
 
 console.log('nomix plugin installed and composed the RAGFlow bundle')
