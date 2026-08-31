@@ -24,12 +24,13 @@ jobs:
       NOMIX_BG_TEST_PARSE_TIMEOUT_SECONDS: ${{ vars.NOMIX_BG_TEST_PARSE_TIMEOUT_SECONDS }}
       NOMIX_BG_TEST_POLL_INTERVAL_SECONDS: ${{ vars.NOMIX_BG_TEST_POLL_INTERVAL_SECONDS }}
       NOMIX_BG_TEST_REQUEST_TIMEOUT_SECONDS: ${{ vars.NOMIX_BG_TEST_REQUEST_TIMEOUT_SECONDS }}
-      NOMIX_BG_TEST_REPORT_FILE: ${{ runner.temp }}/business-gateway-live-data-plane.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      - name: Configure the runner-local redacted report path
+        run: echo "NOMIX_BG_TEST_REPORT_FILE=$RUNNER_TEMP/business-gateway-live-data-plane.json" >> "$GITHUB_ENV"
       - name: Require environment-scoped target, identities, and explicit write authorization
         run: |
           test -n "$NOMIX_BG_TEST_BASE_URL"
