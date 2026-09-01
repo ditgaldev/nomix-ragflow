@@ -60,6 +60,7 @@ from .memory_scope import (
 from .policy import AuthorizationPolicy, _embedded_dataset_ids
 from .recovery import RecoveryOutcome, RecoveryPlan, command_target_ids
 from .response_contracts import project_response_data
+from .retrieval_port import invoke_ragflow_retrieval
 from .scope_registry import verify_authorization_seal
 from .types import PreparedAuthorization, RagFlowExecutionContext
 
@@ -843,20 +844,20 @@ async def _invoke_retrieval_service(
         chat_config = get_tenant_default_model_by_type(kb.tenant_id, LLMType.CHAT)
         question += await keyword_extraction(LLMBundle(kb.tenant_id, chat_config), question)
 
-    ranks = await settings.retriever.retrieval(
-        question,
-        embedding_model,
-        tenant_ids,
-        dataset_ids,
-        1,
-        top,
-        float(body.get("similarity_threshold", 0.2)),
-        float(body.get("vector_similarity_weight", 0.3)),
-        top,
-        document_ids or None,
-        rerank_mdl=rerank_model,
+    ranks = await invoke_ragflow_retrieval(
+        settings.retriever,
+        question=question,
+        embedding_model=embedding_model,
+        tenant_ids=tenant_ids,
+        dataset_ids=dataset_ids,
+        top_k=top,
+        similarity_threshold=float(body.get("similarity_threshold", 0.2)),
+        vector_similarity_weight=float(body.get("vector_similarity_weight", 0.3)),
+        document_ids=document_ids,
+        rerank_model=rerank_model,
         highlight=bool(body.get("highlight", False)),
         rank_feature=label_question(question, knowledgebases),
+        trace_id=context.request_id,
     )
     chunks = list(ranks.get("chunks") or [])
     if body.get("toc_enhance"):
