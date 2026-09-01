@@ -222,6 +222,7 @@ class DialogService(CommonService):
             cls.model.similarity_threshold,
             cls.model.vector_similarity_weight,
             cls.model.top_n,
+            cls.model.rerank_candidates_count,
             cls.model.top_k,
             cls.model.do_refer,
             cls.model.rerank_id,
@@ -522,6 +523,11 @@ def convert_last_user_msg_to_multimodal(msg: list[dict], image_data_uris: list[s
         return
 
 
+# Keys the chat-completions message schema defines. Stored messages also carry
+# RAGFlow bookkeeping such as id, created_at and doc_ids, plus the conversationId
+# the web client stamps on every turn, and strict providers reject those.
+LLM_MESSAGE_FIELDS = frozenset({"role", "content", "name", "tool_calls", "tool_call_id", "function_call", "refusal", "audio"})
+
 BAD_CITATION_PATTERNS = [
     re.compile(r"\(\s*ID\s*[: ]*\s*(\d+)\s*\)"),  # (ID: 12)
     re.compile(r"\[\s*ID\s*[: ]*\s*(\d+)\s*\]"),  # [ID: 12]
@@ -664,26 +670,44 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
     text_attachments_content, image_attachments, image_files = get_files_content(messages[-1], llm_model_config["model_type"])
 
     prompt_config = dialog.prompt_config
+    rerank_candidates_count = getattr(dialog, "rerank_candidates_count", 64)
     include_reference_metadata, metadata_fields = _resolve_reference_metadata(prompt_config, request_payload=kwargs)
     field_map = KnowledgebaseService.get_field_map(dialog.kb_ids)
     logging.debug(f"field_map retrieved: {field_map}")
     # try to use sql if field mapping is good to go
     if field_map:
-        logging.debug("Use SQL to retrieval:{}".format(questions[-1]))
-        ans = await use_sql(questions[-1], field_map, dialog.tenant_id, chat_mdl, prompt_config.get("quote", True), dialog.kb_ids, doc_ids=scoped_doc_ids)
-        # For aggregate queries (COUNT, SUM, etc.), chunks may be empty but answer is still valid
-        if ans and (ans.get("reference", {}).get("chunks") or ans.get("answer")):
-            if include_reference_metadata and ans.get("reference", {}).get("chunks"):
-                if len(dialog.kb_ids) != 1 and any(not c.get("kb_id") for c in ans["reference"]["chunks"]):
-                    logging.warning(
-                        "Skipping some _enrich_chunks_with_document_metadata results because dialog.kb_ids has %d entries and use_sql returned chunks without kb_id.",
-                        len(dialog.kb_ids),
-                    )
-                _enrich_chunks_with_document_metadata(ans["reference"]["chunks"], metadata_fields)
-            yield ans
-            return
+        # Derive the doc-store tenant/namespace from the referenced dataset's own
+        # owner, not from dialog.tenant_id: a team-shared dataset may be owned by a
+        # different tenant than the one who created this chat.
+        sql_kbs = [kb for kb in kbs if kb.parser_config and kb.parser_config.get("field_map")]
+        sql_tenant_ids = {kb.tenant_id for kb in sql_kbs}
+        if len(sql_tenant_ids) > 1:
+            # use_sql queries a single tenant's doc-store index per call, and
+            # re-running it once per tenant is too slow to do inline (each call
+            # round-trips an LLM to generate SQL). Skip SQL retrieval rather than
+            # silently querying only one tenant's index and dropping the rest.
+            logging.warning(
+                "Skipping SQL retrieval: field-map datasets span multiple tenants (%s); falling back to vector search.",
+                sql_tenant_ids,
+            )
         else:
-            logging.debug("SQL failed or returned no results, falling back to vector search")
+            sql_tenant_id = sql_kbs[0].tenant_id if sql_kbs else dialog.tenant_id
+            sql_kb_ids = [kb.id for kb in sql_kbs] if sql_kbs else dialog.kb_ids
+            logging.debug("Use SQL to retrieval:{}".format(questions[-1]))
+            ans = await use_sql(questions[-1], field_map, sql_tenant_id, chat_mdl, prompt_config.get("quote", True), sql_kb_ids, doc_ids=scoped_doc_ids)
+            # For aggregate queries (COUNT, SUM, etc.), chunks may be empty but answer is still valid
+            if ans and (ans.get("reference", {}).get("chunks") or ans.get("answer")):
+                if include_reference_metadata and ans.get("reference", {}).get("chunks"):
+                    if len(sql_kb_ids) != 1 and any(not c.get("kb_id") for c in ans["reference"]["chunks"]):
+                        logging.warning(
+                            "Skipping some _enrich_chunks_with_document_metadata results because sql_kb_ids has %d entries and use_sql returned chunks without kb_id.",
+                            len(sql_kb_ids),
+                        )
+                    _enrich_chunks_with_document_metadata(ans["reference"]["chunks"], metadata_fields)
+                yield ans
+                return
+            else:
+                logging.debug("SQL failed or returned no results, falling back to vector search")
 
     param_keys = [p["key"] for p in prompt_config.get("parameters", [])]
     if dialog.kb_ids and "knowledge" not in param_keys and "{knowledge}" in prompt_config.get("system", ""):
@@ -737,6 +761,7 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
                     similarity_threshold=0.2,
                     vector_similarity_weight=0.3,
                     doc_ids=scoped_doc_ids,
+                    rerank_candidates_count=rerank_candidates_count,
                 ),
                 internet_enabled=use_web_search,
             )
@@ -772,10 +797,11 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
                     dialog.similarity_threshold,
                     dialog.vector_similarity_weight,
                     doc_ids=scoped_doc_ids,
-                    top=dialog.top_k,
+                    knn_top_k=dialog.top_k,
                     aggs=True,
                     rerank_mdl=rerank_mdl,
                     rank_feature=label_question(" ".join(questions), kbs),
+                    rerank_candidates_count=rerank_candidates_count,
                 )
                 if prompt_config.get("toc_enhance"):
                     cks = await retriever.retrieval_by_toc(" ".join(questions), kbinfos["chunks"], tenant_ids, chat_mdl, dialog.top_n)
@@ -1818,12 +1844,13 @@ async def async_ask(question, kb_ids, tenant_id, chat_llm_name=None, search_conf
         page_size=12,
         similarity_threshold=search_config.get("similarity_threshold", 0.1),
         vector_similarity_weight=vector_similarity_weight,
-        top=search_config.get("top_k", 1024),
+        knn_top_k=search_config.get("top_k", 1024),
         doc_ids=doc_ids,
         aggs=True,
         rerank_mdl=rerank_mdl,
         rank_feature=label_question(question, kbs),
         trace_id=search_id,
+        rerank_candidates_count=search_config.get("rerank_candidates_count", 100),
     )
     if include_reference_metadata:
         logging.debug(
@@ -1920,15 +1947,49 @@ async def gen_mindmap(question, kb_ids, tenant_id, search_config={}):
         page_size=12,
         similarity_threshold=search_config.get("similarity_threshold", 0.2),
         vector_similarity_weight=search_config.get("vector_similarity_weight", 0.3),
-        top=search_config.get("top_k", 1024),
+        knn_top_k=search_config.get("top_k", 1024),
         doc_ids=doc_ids,
         aggs=False,
         rerank_mdl=rerank_mdl,
         rank_feature=label_question(question, kbs),
+        rerank_candidates_count=search_config.get("rerank_candidates_count", 100),
     )
     mindmap = MindMapExtractor(chat_mdl)
     mind_map = await mindmap([c["content_with_weight"] for c in ranks["chunks"]])
     return mind_map.output
+
+
+def _render_reasoning_system_prompt(dialog, prompt_config: dict, kwargs: dict) -> str:
+    """Render the dialog-level system prompt for the reasoning agent path.
+
+    Mirrors the substitutions ``async_chat`` performs for the non-reasoning path
+    so that configured system prompts are honored when reasoning is enabled.
+    The ``{knowledge}`` placeholder is defaulted to an empty string because the
+    agentic graph supplies retrieved evidence through its own evidence block.
+    """
+    system = prompt_config.get("system", "")
+    if not system:
+        return ""
+
+    sys_date = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    kwargs["date"] = sys_date
+
+    param_keys = [p["key"] for p in prompt_config.get("parameters", [])]
+    if dialog.kb_ids and "knowledge" not in param_keys and "{knowledge}" in system:
+        param_keys.append("knowledge")
+        kwargs.setdefault("knowledge", "")
+
+    for p in prompt_config.get("parameters", []):
+        if p["key"] == "knowledge":
+            continue
+        if p["key"] not in kwargs and not p["optional"]:
+            raise KeyError("Miss parameter: " + p["key"])
+        if p["key"] not in kwargs:
+            system = system.replace("{%s}" % p["key"], " ")
+
+    fmt_kwargs = dict(kwargs)
+    fmt_kwargs.setdefault("knowledge", "")
+    return system.format(**fmt_kwargs)
 
 
 async def rag_agent(dialog, messages, stream=True, **kwargs):
@@ -1943,7 +2004,7 @@ async def rag_agent(dialog, messages, stream=True, **kwargs):
     model_type = chat_mdl.model_config["model_type"]
     factory = chat_mdl.model_config.get("llm_factory", "") if chat_mdl.model_config else ""
     text_attachments_content, image_attachments, image_files = get_files_content(messages[-1], model_type)
-    agent_messages = deepcopy(messages)
+    agent_messages = [{k: deepcopy(v) for k, v in m.items() if k in LLM_MESSAGE_FIELDS} for m in messages]
     if text_attachments_content and agent_messages:
         agent_messages[-1]["content"] += text_attachments_content
     if model_type == "chat" and image_attachments:
@@ -1994,6 +2055,7 @@ async def rag_agent(dialog, messages, stream=True, **kwargs):
         do_refer=False,
         thinking_mode=thinking_mode,
         text_attachments_content=text_attachments_content,
+        system_prompt=_render_reasoning_system_prompt(dialog, prompt_config, kwargs),
     )
 
     async def decorate_answer(answer):

@@ -328,19 +328,11 @@ var ErrAgentNotOwner = errors.New("agent not owned by user")
 // same Agent session before the current run reaches a terminal state.
 var ErrAgentSessionBusy = errors.New("agent session is already running")
 
-// ErrAgentStorageError is returned by RunAgent when the underlying
-// version / canvas / tenant DAO surfaces a non-sentinel error (DB
-// connectivity, schema drift, deadlock, etc.). The handler's
-// mapAgentError recognises this sentinel and maps it to
-// common.CodeServerError (500) with a SANITIZED message — the raw
-// DAO error string is never echoed to the client, so internal
-// connection-string / table-name leaks are avoided.
-//
-// v3.5.2 follow-up: the prior af2ac2eda commit claimed "DB error ->
-// 500" in the branch table, but the handler's mapAgentError did not
-// actually classify those errors as CodeServerError — every DAO
-// failure fell through to CodeDataError with the raw err.Error()
-// string. This sentinel closes that gap.
+// ErrAgentStorageError identifies internal Agent service failures such as
+// database connectivity, schema drift, or persistence errors. Synchronous
+// callers map this sentinel to a sanitized 500 response; failures raised after
+// streaming starts are wrapped with canvas.NewInternalRunError so Runner emits
+// the same safe message in its terminal event.
 var ErrAgentStorageError = errors.New("agent storage error")
 
 // AgentService agent service
@@ -740,9 +732,9 @@ func (s *AgentService) listAgentsGroupsOnly(ctx context.Context, userID, keyword
 }
 
 // mergeAgentsAndGroups combines agents and the caller's compilation template
-// groups into a single list ordered by (canvas_category, name) ascending, then
-// pages in Go. desc is accepted for API signature parity but the ordering is
-// intentionally category/name based, not chronological.
+// groups into a single list ordered by update_time, then pages in Go. This
+// mirrors Python's merged /agents response. A stable sort retains the original
+// agent-before-group order when timestamps are equal.
 func (s *AgentService) mergeAgentsAndGroups(ctx context.Context, userID string, agentItems []*AgentItem, keywords, orderBy string, desc bool, page, pageSize int) (*ListAgentsResponse, common.ErrorCode, error) {
 	groups, err := s.compilationTemplateGroupDAO.ListOwnedSaved(ctx, dao.DB, userID, keywords, "", orderBy, desc)
 	if err != nil {
@@ -752,9 +744,8 @@ func (s *AgentService) mergeAgentsAndGroups(ctx context.Context, userID string, 
 	for _, item := range agentItems {
 		item.Type = AgentItemTypeAgent
 		merged = append(merged, mergeCanvasItem{
-			item:     item,
-			category: item.CanvasCategory,
-			name:     derefString(item.Title),
+			item: item,
+			time: intValuePtr(item.UpdateTime),
 		})
 	}
 	for _, g := range groups {
@@ -763,21 +754,15 @@ func (s *AgentService) mergeAgentsAndGroups(ctx context.Context, userID string, 
 			return nil, common.CodeServerError, fmt.Errorf("failed to build group item: %w", err)
 		}
 		merged = append(merged, mergeCanvasItem{
-			raw:      raw,
-			category: CompilationTemplateGroupCategory,
-			name:     g.Name,
+			raw:  raw,
+			time: intValuePtr(g.UpdateTime),
 		})
 	}
-	// Order the merged list by (category, name) ascending (A-Z): agents and
-	// compilation template groups are grouped by flow category, then sorted by
-	// display name within each category. The category sort key uses the raw
-	// canvas_category string so the natural order is agent_canvas <
-	// compilation_template_group < dataflow_canvas.
 	sort.SliceStable(merged, func(i, j int) bool {
-		if merged[i].category != merged[j].category {
-			return merged[i].category < merged[j].category
+		if desc {
+			return merged[i].time > merged[j].time
 		}
-		return strings.ToLower(merged[i].name) < strings.ToLower(merged[j].name)
+		return merged[i].time < merged[j].time
 	})
 	total := int64(len(merged))
 	merged = slicePage(merged, page, pageSize)
@@ -822,15 +807,12 @@ func (s *AgentService) marshalMergeGroupItem(ctx context.Context, userID string,
 	return b, nil
 }
 
-// mergeCanvasItem is a decoded entry in the merged /agents list: exactly one of
-// item (an agent) or raw (a marshalled group) is set. category is the flow
-// classification (canvas_category, or "compilation_template_group" for groups)
-// and name is the display title; the merged list is ordered by (category, name).
+// mergeCanvasItem is an entry in the merged /agents list. Exactly one of item
+// (an agent) or raw (a marshalled group) is set.
 type mergeCanvasItem struct {
-	item     *AgentItem
-	raw      json.RawMessage
-	category string
-	name     string
+	item *AgentItem
+	raw  json.RawMessage
+	time int64
 }
 
 // attachReleaseTimes populates ReleaseTime for each agent item from the latest
@@ -1464,6 +1446,10 @@ func (s *AgentService) RunAgent(ctx context.Context, userID, canvasID, sessionID
 	runID := runIDFor(canvasID, map[string]any{"session_id": sessionID})
 	lockToken := utility.GenerateToken()
 	runCtx, cancelRun := context.WithCancel(ctx)
+	// Keep workflow cancellation separate from event-consumer cancellation.
+	// An explicit session cancellation should still reach an attached client,
+	// while a disconnected HTTP request must stop event delivery promptly.
+	runCtx = canvas.WithEventContext(runCtx, ctx)
 	active := &activeAgentRun{
 		userID:     userID,
 		canvasID:   canvasID,
@@ -1899,7 +1885,7 @@ func (s *AgentService) buildRunFunc(canvasID string, versionRow *entity.UserCanv
 			if events == nil {
 				return
 			}
-			canvas.PushEvent(events, canvas.RunEvent{
+			canvas.PushEvent(ctx, events, canvas.RunEvent{
 				Type: typ, Data: data,
 				MessageID: messageID,
 				CreatedAt: time.Now().Unix(),
@@ -2095,7 +2081,9 @@ func (s *AgentService) buildRunFunc(canvasID string, versionRow *entity.UserCanv
 				zap.String("type", fmt.Sprintf("%T", err)),
 				zap.Error(err))
 			s.markRunFailed(ctx2, runID, "compile: "+err.Error())
-			return nil, fmt.Errorf("canvas compile: %w: %w", ErrAgentStorageError, err)
+			return nil, canvas.NewInternalRunError(
+				fmt.Errorf("canvas compile: %w: %w", ErrAgentStorageError, err),
+			)
 		}
 
 		cpID := ""
@@ -2194,7 +2182,9 @@ func (s *AgentService) buildRunFunc(canvasID string, versionRow *entity.UserCanv
 					appendAssistantHistory(state, partialAssistantOutput(answer, downloads))
 				}
 				if persistErr := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, answer, thinking, referencePayload, dsl, state, answer != ""); persistErr != nil {
-					return nil, fmt.Errorf("persist interrupted agent session: %w: %w", persistErr, ErrAgentStorageError)
+					return nil, canvas.NewInternalRunError(
+						fmt.Errorf("persist interrupted agent session: %w: %w", persistErr, ErrAgentStorageError),
+					)
 				}
 				if answer != "" && shouldEmitMessage {
 					if !messageEventsEmitted {
@@ -2212,7 +2202,9 @@ func (s *AgentService) buildRunFunc(canvasID string, versionRow *entity.UserCanv
 				appendAssistantHistory(state, assistantOutput)
 				if persistErr := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, answer, thinking, referencePayload, dsl, state, true); persistErr != nil {
 					s.markRunFailed(ctx2, runID, "persist session: "+persistErr.Error())
-					return nil, fmt.Errorf("persist agent session: %w: %w", persistErr, ErrAgentStorageError)
+					return nil, canvas.NewInternalRunError(
+						fmt.Errorf("persist agent session: %w: %w", persistErr, ErrAgentStorageError),
+					)
 				}
 				if !messageEventsEmitted && shouldEmitMessage {
 					emitAgentMessageEvents(emit, answer, thinking, referencePayload)
@@ -2248,7 +2240,9 @@ func (s *AgentService) buildRunFunc(canvasID string, versionRow *entity.UserCanv
 		appendAssistantHistory(state, assistantOutput)
 		if persistErr := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, answer, thinking, referencePayload, dsl, state, true); persistErr != nil {
 			s.markRunFailed(ctx2, runID, "persist session: "+persistErr.Error())
-			return nil, fmt.Errorf("persist agent session: %w: %w", persistErr, ErrAgentStorageError)
+			return nil, canvas.NewInternalRunError(
+				fmt.Errorf("persist agent session: %w: %w", persistErr, ErrAgentStorageError),
+			)
 		}
 		if !messageEventsEmitted && shouldEmitMessage {
 			emitAgentMessageEvents(emit, answer, thinking, referencePayload)
