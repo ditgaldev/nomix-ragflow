@@ -1,15 +1,24 @@
-import { Context, type Fiber } from '@nomix-ai/cordis'
-import AgentRegistry, { type Agent } from '@nomix-ai/nomix-agent'
-import AgentLoop from '@nomix-ai/nomix-agent-loop'
-import CredentialProvider, { type CredentialInfo, type CredentialRef, type ResolvedCredential } from '@nomix-ai/nomix-credentials'
-import LocalFileSystem from '@nomix-ai/nomix-fs-local'
-import LlmRuntime, { CallId, createUserMessage, LlmAdapter, type GenerateOptions, type StreamChunk } from '@nomix-ai/nomix-llm'
-import SessionStore, { SessionId } from '@nomix-ai/nomix-session'
-import LocalSpillStore from '@nomix-ai/nomix-spill-local'
-import { createScope, type Scope } from '@nomix-ai/nomix-scope'
-import SystemPrompt from '@nomix-ai/nomix-system-prompt'
-import ToolRuntime, { type PreToolDecision, type ToolExecution, type ToolExecutionResult } from '@nomix-ai/nomix-tools'
-import ApprovalService from '@nomix-ai/nomix-user-approval'
+import { Context, type Fiber } from '@nomix-ai/nomix-harness/plugin'
+import { AgentRegistry, type Agent } from '@nomix-ai/nomix-harness/plugin/agent'
+import { AgentLoop } from '@nomix-ai/nomix-harness/plugin/agent-loop'
+import {
+  CredentialProvider,
+  type CredentialInfo,
+  type CredentialKey,
+  type CredentialRecord,
+  type CredentialRecordEntry,
+  type CredentialRecordInfo,
+  type CredentialRef,
+  type ResolvedCredential,
+} from '@nomix-ai/nomix-harness/plugin/credentials'
+import { LocalFileSystem } from '@nomix-ai/nomix-harness/plugin/fs-local'
+import { CallId, createUserMessage, LlmAdapter, LlmRuntime, type GenerateOptions, type StreamChunk } from '@nomix-ai/nomix-harness/plugin/llm'
+import { SessionId, SessionStore } from '@nomix-ai/nomix-harness/plugin/session'
+import { LocalSpillStore } from '@nomix-ai/nomix-harness/plugin/spill-local'
+import { createScope, type Scope } from '@nomix-ai/nomix-harness/plugin/scope'
+import { SystemPrompt } from '@nomix-ai/nomix-harness/plugin/system-prompt'
+import { ToolRuntime, type PreToolDecision, type ToolExecution, type ToolExecutionResult } from '@nomix-ai/nomix-harness/plugin/tools'
+import { ApprovalService } from '@nomix-ai/nomix-harness/plugin/user-approval'
 import { describe, expect, it } from 'vitest'
 import type { RagFlowBusinessClient } from '../src/client.js'
 import { RAGFLOW_AGENT_TOOL_NAMES } from '../src/harness-contract.js'
@@ -52,6 +61,14 @@ class TestCredentialProvider extends CredentialProvider {
 
   async set(_ref: CredentialRef, value: string): Promise<void> { this.token = value }
   async unset(_ref: CredentialRef): Promise<void> { this.token = '' }
+  async readRecord(_key: CredentialKey): Promise<CredentialRecord | undefined> { return undefined }
+  async describeRecord(_key: CredentialKey): Promise<CredentialRecordInfo> { return { configured: false, writable: true } }
+  async listRecords(): Promise<readonly CredentialRecordEntry[]> { return [] }
+  async modifyRecord(
+    _key: CredentialKey,
+    mutate: (current: CredentialRecord | undefined) => Promise<CredentialRecord | undefined>,
+  ): Promise<CredentialRecord | undefined> { return mutate(undefined) }
+  async deleteRecord(_key: CredentialKey): Promise<void> {}
 }
 
 class ScriptedRetrievalAdapter extends LlmAdapter {
@@ -310,9 +327,9 @@ describe('real Nomix Harness runtime integration', () => {
       expect(root.tools.schemas(agent).map(schema => schema.name)).toEqual(RAGFLOW_AGENT_TOOL_NAMES)
 
       const signal = new AbortController().signal
-      const searchExecution = { callId: 'search-1', name: 'ragflow_retrieval', arguments: { input: { question: 'Acme' } }, agent, signal } as const
+      const searchExecution = { callId: CallId('search-1'), name: 'ragflow_retrieval', arguments: { input: { question: 'Acme' } }, agent, signal } as const
       const deleteExecution = {
-        callId: 'delete-1',
+        callId: CallId('delete-1'),
         name: 'ragflow_manage_datasets',
         arguments: { input: { action: 'delete', operationId: 'delete-dataset-1', datasetId: 'dataset-1', version: 1 } },
         agent,

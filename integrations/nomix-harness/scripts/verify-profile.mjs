@@ -11,8 +11,12 @@ const tarball = resolve(input)
 const home = await mkdtemp(join(tmpdir(), 'nomix-ragflow-profile-'))
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 const require = createRequire(join(packageRoot, 'package.json'))
-const harnessRoot = dirname(require.resolve('@nomix-ai/nomix-harness/package.json'))
-const cli = join(harnessRoot, 'dist', 'cli', 'bin.js')
+const harnessManifestPath = require.resolve('@nomix-ai/nomix-harness/package.json')
+const harnessRoot = dirname(harnessManifestPath)
+const harnessManifest = JSON.parse(await readFile(harnessManifestPath, 'utf8'))
+const cliEntry = typeof harnessManifest.bin === 'string' ? harnessManifest.bin : harnessManifest.bin?.nomix
+if (typeof cliEntry !== 'string') throw new Error('installed Harness package does not expose the nomix CLI')
+const cli = resolve(harnessRoot, cliEntry)
 const env = { ...process.env, NOMIX_HOME: home }
 
 execFileSync(process.execPath, [cli, 'plugin', '--profile', 'ragflow-audit', 'add', tarball], {

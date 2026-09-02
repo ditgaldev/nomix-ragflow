@@ -1,4 +1,4 @@
-import type { ParameterPropertySpec } from '@nomix-ai/nomix-tools'
+import type { ParameterPropertySpec } from '@nomix-ai/nomix-harness/plugin/tools'
 import type { RagFlowAgentToolName } from './harness-contract.js'
 
 /**

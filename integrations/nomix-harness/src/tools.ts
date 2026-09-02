@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
-import type { Context } from '@nomix-ai/cordis'
-import { HarnessError } from '@nomix-ai/nomix-llm'
-import { defineTool, type JsonValue, type PreToolDecision, type ToolRunContext, type ToolRuntime } from '@nomix-ai/nomix-tools'
+import type { Context } from '@nomix-ai/nomix-harness/plugin'
+import { HarnessError } from '@nomix-ai/nomix-harness/plugin/llm'
+import { defineTool, type JsonValue, type PreToolDecision, type ToolRunContext, type ToolRuntime } from '@nomix-ai/nomix-harness/plugin/tools'
 import type { RagFlowBusinessClient } from './client.js'
 import { BusinessGatewayError } from './errors.js'
 import { DEFAULT_RAGFLOW_TOOL_TIMEOUT_MS } from './harness-contract.js'
@@ -369,7 +369,7 @@ function observationDetails(name: string, args: unknown, data: JsonValue, artifa
 }
 
 function createObservation(services: RagFlowToolServices, exec: ToolRunContext) {
-  return async (details: ObservationDetails): Promise<JsonValue> => {
+  return async (details: ObservationDetails): Promise<RagFlowObservation> => {
     const { summary, data, nextActions, artifacts, kind } = details
     if (kind === 'artifact-reference') {
       const artifact = artifacts[0]
@@ -386,7 +386,7 @@ function createObservation(services: RagFlowToolServices, exec: ToolRunContext) 
         data: { kind, format: 'artifact-reference', artifactName: artifact.name, bytes: artifact.bytes, truncated: true },
         nextActions,
         artifacts,
-      } satisfies RagFlowObservation as unknown as JsonValue
+      } satisfies RagFlowObservation
     }
 
     const content = JSON.stringify(data, null, 2) ?? 'null'
@@ -400,7 +400,7 @@ function createObservation(services: RagFlowToolServices, exec: ToolRunContext) 
         data: { kind, format: 'json-entries', entries, bytes, truncated: false },
         nextActions,
         artifacts,
-      } satisfies RagFlowObservation as unknown as JsonValue
+      } satisfies RagFlowObservation
     }
 
     const suffix = createHash('sha256').update(String(exec.callId)).digest('hex').slice(0, 12)
@@ -416,7 +416,7 @@ function createObservation(services: RagFlowToolServices, exec: ToolRunContext) 
       data: { kind: 'artifact-reference', format: 'artifact-reference', artifactName: artifact.name, bytes, truncated: true },
       nextActions: [...nextActions, 'Use the artifact retrieval hint when the complete result is required.'],
       artifacts: [...artifacts, artifact],
-    } satisfies RagFlowObservation as unknown as JsonValue
+    } satisfies RagFlowObservation
   }
 }
 
@@ -464,7 +464,7 @@ async function executeBusinessTool(
   name: string,
   args: unknown,
   body: () => Promise<unknown>,
-): Promise<JsonValue> {
+): Promise<RagFlowObservation> {
   const value = await body()
   const artifactResult = value as Partial<ArtifactExecutionResult> | null | undefined
   const details = artifactResult?.kind === 'ragflow-artifact-result'

@@ -1,4 +1,4 @@
-import { Context } from '@nomix-ai/cordis'
+import { Context } from '@nomix-ai/nomix-harness/plugin'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { assertRagFlowConsumerConfiguration } from '../src/consumer.js'
 import { MAX_RAGFLOW_AGENT_UPLOAD_BYTES, RAGFLOW_TOOL_TIMEOUT_GRACE_MS } from '../src/harness-contract.js'

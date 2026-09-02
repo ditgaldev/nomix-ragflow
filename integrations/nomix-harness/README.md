@@ -11,7 +11,8 @@ npm install @nomix-ai/nomix-ragflow
 ```
 
 The package targets Node.js `^22.19 || >=24`. The plugin targets Nomix Harness
-`^0.2.5` and resolves its runtime dependencies from the Harness kernel.
+`^0.2.9` and imports every runtime capability through the stable Harness
+`plugin/*` API.
 
 ## TypeScript client
 
@@ -146,7 +147,7 @@ files and raise the Gateway file, complete-request, and proxy budgets together;
 the plugin never bypasses Harness fs to read a host path directly.
 
 Authorized downloads never convert a Harness path into a host Node path. They
-are persisted with session ownership in the Harness spill plane. Harness 0.2.5
+are persisted with session ownership in the Harness spill plane. Harness 0.2.9
 exposes a text-only SpillStore, so the raw binary limit is computed before
 download as `floor(artifactMaxBytes / 4) * 3`; the encoded artifact cannot exceed
 `artifactMaxBytes`. Binary

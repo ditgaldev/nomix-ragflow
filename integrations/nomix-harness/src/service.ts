@@ -2,12 +2,12 @@
  * Provider-neutral Harness capability seam for RAGFlow Business Gateway
  * access. This service owns provider registration and selection only.
  */
-import { Service, type Context } from '@nomix-ai/cordis'
-import type { CredentialProvider } from '@nomix-ai/nomix-credentials'
+import { Service, type Context } from '@nomix-ai/nomix-harness/plugin'
+import type { CredentialProvider } from '@nomix-ai/nomix-harness/plugin/credentials'
 import type { RagFlowBusinessClient } from './client.js'
 import { BusinessGatewayError } from './errors.js'
 
-declare module '@nomix-ai/cordis' {
+declare module '@nomix-ai/nomix-harness/plugin' {
   interface Context {
     ragflow: RagFlowRuntime
   }

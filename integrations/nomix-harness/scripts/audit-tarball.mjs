@@ -12,13 +12,26 @@ for (const entry of entries) {
 const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 if (manifest.name !== '@nomix-ai/nomix-ragflow' || manifest.private === true) throw new Error('unexpected package identity')
 const harnessPackage = '@nomix-ai/nomix-harness'
-if (manifest.peerDependencies?.[harnessPackage] !== '^0.2.5') throw new Error('unexpected Harness peer range')
-if (manifest.peerDependenciesMeta?.[harnessPackage]?.optional !== true) throw new Error('Harness peer must stay optional for standalone client consumers')
+if (manifest.dependencies?.[harnessPackage] !== '^0.2.9') throw new Error('unexpected Harness dependency range')
 for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
   for (const packageName of Object.keys(manifest[field] ?? {})) {
-    if (packageName.startsWith('@nomix-ai/') && packageName !== harnessPackage) {
-      throw new Error(`${packageName} must resolve from the Harness kernel, not ${field}`)
+    if (packageName === harnessPackage && field !== 'dependencies') {
+      throw new Error(`Harness must be declared once in dependencies, not ${field}`)
     }
+    if (packageName.startsWith('@nomix-ai/') && packageName !== harnessPackage) {
+      throw new Error(`${packageName} must be imported through the Harness plugin API, not ${field}`)
+    }
+  }
+}
+const runtimeText = entries
+  .filter(entry => /^package\/lib\/.*\.(?:d\.ts|js)$/u.test(entry))
+  .map(entry => execFileSync('tar', ['-xOf', tarball, entry], { encoding: 'utf8' }))
+  .join('\n')
+const nomixImports = [...runtimeText.matchAll(/(?:from\s+|import\s*\()['"](@nomix-ai\/[^'"]+)['"]/gu)]
+  .map(match => match[1])
+for (const specifier of new Set(nomixImports)) {
+  if (specifier !== `${harnessPackage}/plugin` && !specifier.startsWith(`${harnessPackage}/plugin/`)) {
+    throw new Error(`published runtime bypasses the Harness plugin API: ${specifier}`)
   }
 }
 console.log(`audited ${entries.length} entries in ${tarball}`)

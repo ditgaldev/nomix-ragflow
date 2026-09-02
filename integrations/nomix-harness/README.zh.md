@@ -10,8 +10,8 @@ RAGFlow API Key。
 npm install @nomix-ai/nomix-ragflow
 ```
 
-要求 Node.js `^22.19 || >=24`。插件面向 Nomix Harness `^0.2.5`，运行时依赖由
-Harness kernel 提供。
+要求 Node.js `^22.19 || >=24`。插件面向 Nomix Harness `^0.2.9`，所有运行时能力均通过
+稳定的 Harness `plugin/*` API 导入。
 
 ## TypeScript Client
 
@@ -122,7 +122,7 @@ Harness 当前没有 workspace-safe 的二进制流式读取接口，因此 Agen
 单文件、完整请求和代理三层预算；插件不会绕过 Harness fs 直接读取宿主机路径。
 
 授权下载不会再把 Harness path 转成宿主机 Node path，并以当前 session 为 owner 写入
-Harness spill。Harness 0.2.5 的 SpillStore 只有文本接口，因此在下载前按
+Harness spill。Harness 0.2.9 的 SpillStore 仍只有文本接口，因此在下载前按
 `floor(artifactMaxBytes / 4) * 3` 计算原始二进制上限，确保 base64 编码结果不会超过
 `artifactMaxBytes`。二进制暂时使用明确标注的 `.base64` 文本 artifact，保留原始文件名、媒体
 类型、大小和摘要；base64 内容不会进入模型可见结果。未来接入原生二进制 artifact

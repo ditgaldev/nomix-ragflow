@@ -47,11 +47,10 @@ jobs:
         shell: bash
         run: |
           package=@nomix-ai/nomix-harness
-          expected="$(node -p "require('./package.json').devDependencies['$package']")"
-          actual="$(npm view "$package@$expected" version)"
-          test "$actual" = "$expected" || { echo "$package: expected $expected, registry returned $actual"; exit 1; }
+          range="$(node -p "require('./package.json').dependencies['$package']")"
+          actual="$(npm view "$package@$range" version)"
+          test -n "$actual" || { echo "$package: no published version satisfies $range"; exit 1; }
       - run: npm install
-      - run: npm run harness:link
       - run: npm run contracts:check
       - run: npm run typecheck
       - run: npm run lint

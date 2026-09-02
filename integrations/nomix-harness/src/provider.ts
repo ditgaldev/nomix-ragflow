@@ -1,7 +1,6 @@
 /** Harness Provider that binds the RAGFlow seam to one Business Gateway. */
-import type { Context } from '@nomix-ai/cordis'
-import { credentialRef } from '@nomix-ai/nomix-credentials'
-import z from '@nomix-ai/schemastery'
+import { Schema as z, type Context } from '@nomix-ai/nomix-harness/plugin'
+import { credentialRef } from '@nomix-ai/nomix-harness/plugin/credentials'
 import { RagFlowBusinessClient } from './client.js'
 import { BusinessGatewayError } from './errors.js'
 import {

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { basename } from 'node:path'
-import type { FileSystem } from '@nomix-ai/nomix-fs'
+import type { FileSystem } from '@nomix-ai/nomix-harness/plugin/fs'
 import type { RagFlowBusinessClient } from './client.js'
 import { BusinessGatewayError } from './errors.js'
 import type { Document } from './types.js'

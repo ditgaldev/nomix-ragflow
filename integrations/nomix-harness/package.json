@@ -1,6 +1,6 @@
 {
   "name": "@nomix-ai/nomix-ragflow",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Nomix RAGFlow Business Gateway client and Agent-scoped Harness integration",
   "license": "Apache-2.0",
   "type": "module",
@@ -78,22 +78,15 @@
     "lint": "oxlint src tests scripts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "harness:link": "node scripts/link-harness-kernel.mjs",
     "contracts:generate": "node scripts/generate-openapi-types.mjs",
     "contracts:check": "node scripts/generate-openapi-types.mjs --check",
-    "verify": "npm run harness:link && npm run contracts:check && npm run typecheck && npm run lint && npm run test && npm run build",
+    "verify": "npm run contracts:check && npm run typecheck && npm run lint && npm run test && npm run build",
     "prepack": "npm run verify"
   },
-  "peerDependencies": {
-    "@nomix-ai/nomix-harness": "^0.2.5"
-  },
-  "peerDependenciesMeta": {
-    "@nomix-ai/nomix-harness": {
-      "optional": true
-    }
+  "dependencies": {
+    "@nomix-ai/nomix-harness": "^0.2.9"
   },
   "devDependencies": {
-    "@nomix-ai/nomix-harness": "0.2.5",
     "@types/node": "24.5.2",
     "oxlint": "1.14.0",
     "typescript": "5.9.2",
