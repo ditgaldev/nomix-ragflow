@@ -9,7 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from common.constants import TaskStatus
+
 RecoveryDecision = Literal["applied", "unknown"]
+PageIndexRecoveryAction = Literal["applied", "resume", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -54,4 +57,21 @@ def command_target_ids(operation: str, prepared: Any) -> list[str]:
     return [str(value)] if value is not None else []
 
 
-__all__ = ["RecoveryOutcome", "RecoveryPlan", "command_target_ids"]
+def page_index_recovery_action(
+    before_run: str,
+    before_task_ids: set[str],
+    current_run: str,
+    current_task_ids: set[str],
+) -> PageIndexRecoveryAction:
+    """Classify native parse evidence without treating RUNNING alone as success."""
+
+    if current_task_ids - before_task_ids:
+        return "applied"
+    if current_run == TaskStatus.RUNNING.value and not current_task_ids:
+        return "resume"
+    if current_run == before_run and current_task_ids == before_task_ids:
+        return "resume"
+    return "unknown"
+
+
+__all__ = ["RecoveryOutcome", "RecoveryPlan", "command_target_ids", "page_index_recovery_action"]

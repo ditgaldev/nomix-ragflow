@@ -1,6 +1,7 @@
 export const RAGFLOW_AGENT_TOOL_NAMES = [
   'ragflow_discover',
   'ragflow_retrieval',
+  'ragflow_page_index',
   'ragflow_manage_datasets',
   'ragflow_manage_documents',
   'ragflow_transfer_documents',

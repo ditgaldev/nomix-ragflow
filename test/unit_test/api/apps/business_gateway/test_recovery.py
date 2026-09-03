@@ -30,6 +30,20 @@ def test_recovery_targets_select_the_mutated_resource_not_its_parent(gateway_mod
         prepared({"dataset_id": "dataset-a"}, {"documentIds": ["document-a", "document-b"]}),
     ) == ["document-a", "document-b"]
     assert recovery.command_target_ids(
+        "pageIndex.build",
+        prepared({"dataset_id": "dataset-a"}, {"documentIds": ["document-a", "document-b"]}),
+    ) == ["document-a", "document-b"]
+    assert recovery.command_target_ids(
         "chats.batchDelete",
         prepared({}, {"ids": ["chat-a", "chat-b"]}),
     ) == ["chat-a", "chat-b"]
+
+
+@pytest.mark.p1
+def test_page_index_recovery_requires_native_task_evidence(gateway_modules):
+    recovery = gateway_modules("recovery")
+
+    assert recovery.page_index_recovery_action("0", set(), "1", {"task-new"}) == "applied"
+    assert recovery.page_index_recovery_action("0", set(), "1", set()) == "resume"
+    assert recovery.page_index_recovery_action("0", set(), "0", set()) == "resume"
+    assert recovery.page_index_recovery_action("0", {"task-old"}, "1", {"task-old"}) == "unknown"

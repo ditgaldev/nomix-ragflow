@@ -322,6 +322,7 @@ function observationDetails(name: string, args: unknown, data: JsonValue, artifa
   const quantity = count ?? selectedCount
   const resources: Record<string, string> = {
     ragflow_retrieval: 'authorized knowledge chunk',
+    ragflow_page_index: 'PageIndex result',
     ragflow_discover: 'business authorization context',
     ragflow_manage_datasets: 'dataset',
     ragflow_manage_documents: 'document',
@@ -343,10 +344,21 @@ function observationDetails(name: string, args: unknown, data: JsonValue, artifa
   else if (action === 'create' || action === 'add' || action === 'add_message') summary = `Created ${prefix}${resource}(s).`
   else if (action === 'upload') {
     summary = `Uploaded ${prefix}document(s) to the authorized dataset.`
-    nextActions = ['Start parsing the uploaded documents when they should become searchable.']
+    nextActions = ['Use ragflow_page_index.build for chapter-tree retrieval, or start_parse for ordinary chunk retrieval.']
   } else if (action === 'start_parse') {
     summary = `Started parsing ${prefix}document(s).`
     nextActions = ['List the documents to observe parsing progress before retrieval.']
+  } else if (name === 'ragflow_page_index' && action === 'build') {
+    summary = `Configured PageIndex and started parsing ${prefix}document(s).`
+    nextActions = ['Poll ragflow_page_index.status until state is ready, failed, or cancelled; inspect phase and errorCode on failure.']
+  } else if (name === 'ragflow_page_index' && action === 'status') {
+    summary = 'Loaded the authorized PageIndex build status.'
+    const state = data !== null && typeof data === 'object' && !Array.isArray(data) ? data.state : undefined
+    if (state === 'not_configured') nextActions = ['Use ragflow_page_index.build with a stable operationId to configure and start PageIndex parsing.']
+    else if (state === 'ready') nextActions = ['Use ragflow_page_index.get or ragflow_page_index.search.']
+    else if (state === 'failed') nextActions = ['Inspect phase, errorCode, and errorMessage; fix the reported dependency or document issue, then start a new build with a new operationId.']
+    else if (state === 'cancelled') nextActions = ['Start a new build with a new operationId when PageIndex is still required.']
+    else nextActions = ['Poll this document status until it reaches ready, failed, or cancelled.']
   } else if (action === 'download') summary = 'Downloaded the authorized document into the Agent-scoped Harness artifact plane.'
   else if (action === 'cancel_parse') summary = `Requested parsing cancellation for ${prefix}document(s).`
   else if (action === 'update' || action === 'update_auto_metadata' || action === 'update_message_status') summary = `Updated the authorized ${resource}.`
@@ -361,6 +373,7 @@ function observationDetails(name: string, args: unknown, data: JsonValue, artifa
   let kind: RagFlowObservationKind = 'resource'
   if (name === 'ragflow_discover') kind = 'authorization'
   else if (name === 'ragflow_retrieval') kind = 'retrieval'
+  else if (name === 'ragflow_page_index' && action === 'search') kind = 'retrieval'
   else if (action === 'download') kind = 'artifact-reference'
   else if (action === 'list' || action === 'list_messages' || action === 'search_messages' || action === 'recent_messages') kind = 'resource-list'
   else if (action === 'ask') kind = 'invocation'
@@ -562,6 +575,53 @@ export function registerRagFlowTools(ctx: ToolContext, services: RagFlowToolServ
             fields: strings(referenceMetadata, 'fields'),
           },
         }, requestOptions(exec, 'retrieval.search', 'ragflow_retrieval', input))
+      })
+    },
+  }), timeoutMs))
+
+  disposers.push(register(ctx, defineTool({
+    name: 'ragflow_page_index',
+    description: 'Build PageIndex for uploaded RAGFlow documents, observe parsing readiness, read chapter trees, or retrieve source chunks through matching chapter paths. Build and search are limited to explicitly selected documents.',
+    parameters: { input: RAGFLOW_TOOL_INPUT_SCHEMAS.ragflow_page_index }, output,
+    isConcurrencySafe: args => isRagFlowToolConcurrencySafe('ragflow_page_index', args.input),
+    async execute(args, exec) {
+      return executeBusinessTool(services, exec, 'ragflow_page_index', args, async () => {
+        const input = object(args.input)
+        const client = await services.client(exec)
+        switch (string(input, 'action')) {
+          case 'get': return client.pageIndex.get(
+            string(input, 'datasetId'),
+            string(input, 'documentId'),
+            requestOptions(exec, 'pageIndex.get', 'ragflow_page_index', input),
+          )
+          case 'status': return client.pageIndex.status(
+            string(input, 'datasetId'),
+            string(input, 'documentId'),
+            requestOptions(exec, 'pageIndex.status', 'ragflow_page_index', input),
+          )
+          case 'build': {
+            const documentIds = requiredStrings(input, 'documentIds')
+            if (documentIds.length > 20) throw new TypeError('input.documentIds must contain between 1 and 20 IDs')
+            return client.pageIndex.build(
+              string(input, 'datasetId'),
+              { documentIds },
+              requestOptions(exec, 'pageIndex.build', 'ragflow_page_index', input),
+            )
+          }
+          case 'search': {
+            const datasetIds = requiredStrings(input, 'datasetIds')
+            if (datasetIds.length > 20) throw new TypeError('input.datasetIds must contain between 1 and 20 IDs')
+            const documentIds = requiredStrings(input, 'documentIds')
+            if (documentIds.length > 20) throw new TypeError('input.documentIds must contain between 1 and 20 IDs')
+            return client.pageIndex.search({
+              datasetIds,
+              documentIds,
+              question: string(input, 'question'),
+              limit: optionalInteger(input, 'limit', 1, 100),
+            }, requestOptions(exec, 'pageIndex.search', 'ragflow_page_index', input))
+          }
+          default: throw new TypeError('unsupported PageIndex action')
+        }
       })
     },
   }), timeoutMs))

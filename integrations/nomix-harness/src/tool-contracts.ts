@@ -203,6 +203,20 @@ export const RAGFLOW_TOOL_INPUT_SCHEMAS = {
       },
     },
   },
+  ragflow_page_index: { oneOf: [
+    actionInput('get', { datasetId: requiredResourceId, documentId: requiredResourceId }),
+    actionInput('status', { datasetId: requiredResourceId, documentId: requiredResourceId }),
+    writeActionInput('build', {
+      datasetId: requiredResourceId,
+      documentIds: { ...resourceIdArray, required: true, description: 'One to 20 uploaded document IDs to configure for PageIndex and parse.' },
+    }),
+    actionInput('search', {
+      datasetIds: { ...resourceIdArray, required: true, description: 'One to 20 dataset IDs containing the selected documents.' },
+      documentIds: { ...resourceIdArray, required: true, description: 'One to 20 document IDs whose compiled PageIndex trees will be searched.' },
+      question: requiredString,
+      limit: pageProperties.limit,
+    }),
+  ], required: true },
   ragflow_manage_datasets: { oneOf: [
     actionInput('list', { ...pageProperties, id: optionalResourceId, ids: resourceIdArray, name: optionalString }),
     actionInput('get', { datasetId: requiredResourceId }),

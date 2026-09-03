@@ -264,6 +264,87 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         ("chunks", "total", "docAggs"),
     ),
+    "PageIndexEntity": _object(
+        {"name": S, "type": S, "description": S, "sourceChunkIds": SA},
+        ("name", "type", "description", "sourceChunkIds"),
+    ),
+    "PageIndexRelation": _object(
+        {"from": S, "to": S, "type": S},
+        ("from", "to", "type"),
+    ),
+    "PageIndexTemplate": _object(
+        {
+            "templateId": S,
+            "templateName": S,
+            "kind": {"type": "string", "const": "page_index"},
+            "entities": _array(_ref("PageIndexEntity")),
+            "relations": _array(_ref("PageIndexRelation")),
+        },
+        ("templateId", "templateName", "kind", "entities", "relations"),
+    ),
+    "PageIndexResult": _object(
+        {"datasetId": S, "documentId": S, "templates": _array(_ref("PageIndexTemplate"))},
+        ("datasetId", "documentId", "templates"),
+    ),
+    "PageIndexStatus": _object(
+        {
+            "datasetId": S,
+            "documentId": S,
+            "run": S,
+            "progress": N,
+            "progressMessage": S,
+            "pageIndexAvailable": B,
+            "state": {"type": "string", "enum": ["not_configured", "pending", "running", "ready", "failed", "cancelled"]},
+            "phase": {"type": ["string", "null"]},
+            "errorCode": {"type": ["string", "null"]},
+            "errorMessage": {"type": ["string", "null"]},
+            "updatedAt": {"type": ["integer", "null"]},
+        },
+        (
+            "datasetId",
+            "documentId",
+            "run",
+            "progress",
+            "progressMessage",
+            "pageIndexAvailable",
+            "state",
+            "phase",
+            "errorCode",
+            "errorMessage",
+            "updatedAt",
+        ),
+    ),
+    "PageIndexPath": _object(
+        {
+            "templateId": S,
+            "templateName": S,
+            "entities": _array(_ref("PageIndexEntity")),
+            "relations": _array(_ref("PageIndexRelation")),
+        },
+        ("templateId", "templateName", "entities", "relations"),
+    ),
+    "PageIndexDocumentTrace": _object(
+        {
+            "datasetId": S,
+            "documentId": S,
+            "pageIndexAvailable": B,
+            "paths": _array(_ref("PageIndexPath")),
+        },
+        ("datasetId", "documentId", "pageIndexAvailable", "paths"),
+    ),
+    "PageIndexNavigation": _object(
+        {"documents": _array(_ref("PageIndexDocumentTrace")), "fallbackUsed": B},
+        ("documents", "fallbackUsed"),
+    ),
+    "PageIndexSearchResult": _object(
+        {
+            "chunks": _array(_ref("RetrievalChunk")),
+            "total": I,
+            "docAggs": J,
+            "navigation": _ref("PageIndexNavigation"),
+        },
+        ("chunks", "total", "docAggs", "navigation"),
+    ),
 }
 
 # Knowledge-graph retrieval may produce a synthetic chunk without a persisted id;
@@ -278,6 +359,10 @@ def _response_data_contracts() -> dict[str, dict[str, Any]]:
     contracts: dict[str, dict[str, Any]] = {
         "authorization.context": _ref("BusinessAuthorizationContext"),
         "retrieval.search": _ref("RetrievalResult"),
+        "pageIndex.get": _ref("PageIndexResult"),
+        "pageIndex.status": _ref("PageIndexStatus"),
+        "pageIndex.build": _ref("CommandResult"),
+        "pageIndex.search": _ref("PageIndexSearchResult"),
     }
 
     def add(names: tuple[str, ...], schema: dict[str, Any]) -> None:

@@ -49,6 +49,12 @@ _LOCK_ONLY_TARGETS: dict[str, tuple[Any, str, str]] = {
     "chunks.create": (Document, "document_id", "document"),
     "chunks.batchDelete": (Document, "document_id", "document"),
 }
+_DOCUMENT_SET_LOCK_OPERATIONS = {
+    "documents.batchDelete",
+    "documents.startParse",
+    "documents.cancelParse",
+    "pageIndex.build",
+}
 
 
 @dataclass(frozen=True)
@@ -72,6 +78,21 @@ class ConcurrencyLease:
             await asyncio.to_thread(self.lock.release)
         except Exception:  # noqa: BLE001 - release failure must not replace the operation result
             logger.error("Business Gateway concurrency lock release failed request_id=%s", self.request_id)
+
+
+@dataclass
+class ConcurrencyLeaseSet:
+    """One command lease composed from locks acquired in deterministic order."""
+
+    leases: tuple[ConcurrencyLease, ...]
+    released: bool = False
+
+    async def release(self) -> None:
+        if self.released:
+            return
+        self.released = True
+        for lease in reversed(self.leases):
+            await lease.release()
 
 
 class OptimisticConcurrencyManager:
@@ -109,9 +130,11 @@ class OptimisticConcurrencyManager:
         capability: Capability,
         context: RagFlowExecutionContext,
         prepared: PreparedAuthorization,
-    ) -> ConcurrencyLease | None:
+    ) -> ConcurrencyLease | ConcurrencyLeaseSet | None:
         """Serialize recovery without re-evaluating the pre-effect If-Match version."""
 
+        if capability.operation in _DOCUMENT_SET_LOCK_OPERATIONS:
+            return await self._acquire_document_set_locks(capability.operation, context, prepared)
         target = _TARGETS.get(capability.operation) or _LOCK_ONLY_TARGETS.get(capability.operation)
         if target is None:
             return None
@@ -126,17 +149,44 @@ class OptimisticConcurrencyManager:
         capability: Capability,
         context: RagFlowExecutionContext,
         prepared: PreparedAuthorization,
-    ) -> ConcurrencyLease | None:
-        """Serialize mutations whose parent counter must converge but has no public ETag."""
+    ) -> ConcurrencyLease | ConcurrencyLeaseSet | None:
+        """Serialize mutations that require a non-ETag ownership boundary."""
 
+        if capability.operation in _DOCUMENT_SET_LOCK_OPERATIONS:
+            if capability.operation == "pageIndex.build":
+                dataset_id = str(prepared.path_args.get("dataset_id", "")).strip()
+                if not dataset_id or Knowledgebase.get_or_none(Knowledgebase.id == dataset_id) is None:
+                    raise resource_not_found(context.request_id)
+            return await self._acquire_document_set_locks(capability.operation, context, prepared)
         target = _LOCK_ONLY_TARGETS.get(capability.operation)
         if target is None:
             return None
         model, path_key, resource_type = target
-        resource_id = str(prepared.path_args.get(path_key, "")).strip()
-        if not resource_id or model.get_or_none(model.id == resource_id) is None:
+        path_resource_id = str(prepared.path_args.get(path_key, "")).strip()
+        if not path_resource_id or model.get_or_none(model.id == path_resource_id) is None:
             raise resource_not_found(context.request_id)
+        resource_id = path_resource_id
         return await self._acquire_lock(context, resource_type, resource_id)
+
+    async def _acquire_document_set_locks(
+        self,
+        operation: str,
+        context: RagFlowExecutionContext,
+        prepared: PreparedAuthorization,
+    ) -> ConcurrencyLeaseSet:
+        targets = [("page-index-tenant", context.tenant_id)] if operation == "pageIndex.build" else []
+        targets.extend(("document", document_id) for document_id in sorted(prepared.document_ids))
+        if not targets:
+            raise RuntimeError(f"Document lock targets are missing for {operation}")
+        leases: list[ConcurrencyLease] = []
+        try:
+            for resource_type, resource_id in targets:
+                leases.append(await self._acquire_lock(context, resource_type, resource_id))
+        except Exception:
+            for lease in reversed(leases):
+                await lease.release()
+            raise
+        return ConcurrencyLeaseSet(tuple(leases))
 
     async def _acquire_lock(
         self,
@@ -240,4 +290,4 @@ def _positive_env(name: str, default: int) -> int:
 
 
 def requires_mutation_lock(operation: str) -> bool:
-    return operation in _LOCK_ONLY_TARGETS
+    return operation in _LOCK_ONLY_TARGETS or operation in _DOCUMENT_SET_LOCK_OPERATIONS

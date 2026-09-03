@@ -47,6 +47,7 @@ from common.time_utils import current_timestamp
 from rag.app.tag import label_question
 from rag.prompts.generator import cross_languages, keyword_extraction
 
+from . import page_index_service
 from .capabilities import MAX_PAGE_LIMIT, Capability
 from .cursor import CursorCodec
 from .errors import BusinessGatewayError
@@ -58,7 +59,7 @@ from .memory_scope import (
     update_subject_message_status,
 )
 from .policy import AuthorizationPolicy, _embedded_dataset_ids
-from .recovery import RecoveryOutcome, RecoveryPlan, command_target_ids
+from .recovery import RecoveryOutcome, RecoveryPlan, command_target_ids, page_index_recovery_action
 from .response_contracts import project_response_data
 from .retrieval_port import invoke_ragflow_retrieval
 from .scope_registry import verify_authorization_seal
@@ -80,6 +81,7 @@ _COMMAND_RESULT_OPERATIONS = {
     "documents.batchDelete",
     "documents.startParse",
     "documents.cancelParse",
+    "pageIndex.build",
     "chunks.delete",
     "chunks.batchDelete",
     "chats.delete",
@@ -216,6 +218,21 @@ class RagFlowBusinessServiceAdapter:
                     "documentId": str(prepared.path_args["document_id"]),
                 },
             )
+        if operation == "pageIndex.build":
+            documents = []
+            for document_id in command_target_ids(operation, prepared):
+                doc = Document.get_by_id(document_id)
+                documents.append(
+                    {
+                        "id": document_id,
+                        "run": str(doc.run),
+                        "taskIds": sorted(str(task.id) for task in TaskService.query(doc_id=document_id)),
+                    }
+                )
+            return RecoveryPlan(
+                "page-index-parse",
+                {"datasetId": str(prepared.path_args["dataset_id"]), "documents": documents},
+            )
         if operation in {"documents.startParse", "documents.cancelParse"}:
             documents = []
             for document_id in command_target_ids(operation, prepared):
@@ -232,7 +249,7 @@ class RagFlowBusinessServiceAdapter:
                 {
                     "datasetId": str(prepared.path_args["dataset_id"]),
                     "documents": documents,
-                    "target": "running" if operation == "documents.startParse" else "cancelled",
+                    "target": "cancelled" if operation == "documents.cancelParse" else "running",
                 },
             )
         return RecoveryPlan()
@@ -386,6 +403,35 @@ async def _recover_effect(
                     break
         return AdapterResult(data={"successCount": len(documents)}, status=202) if applied else None
 
+    if plan.strategy == "page-index-parse":
+        documents = descriptor.get("documents", [])
+        if not documents:
+            return None
+        dataset_id = str(descriptor.get("datasetId", ""))
+        resume = []
+        for target in documents:
+            document_id = str(target.get("id", ""))
+            doc = Document.get_or_none((Document.id == document_id) & (Document.kb_id == dataset_id))
+            if doc is None:
+                return None
+            before_tasks = {str(value) for value in target.get("taskIds", [])}
+            after_tasks = {str(task.id) for task in TaskService.query(doc_id=document_id)}
+            recovery_action = page_index_recovery_action(
+                str(target.get("run", "")),
+                before_tasks,
+                str(doc.run),
+                after_tasks,
+            )
+            if recovery_action == "applied":
+                continue
+            if recovery_action == "unknown":
+                return None
+            resume.append(doc)
+        if resume:
+            await asyncio.to_thread(page_index_service.configure_page_index, context.tenant_id, resume)
+            await asyncio.to_thread(_start_parse_documents, context, dataset_id, resume)
+        return AdapterResult(data={"successCount": len(documents)}, status=202)
+
     return None
 
 
@@ -485,6 +531,8 @@ async def _invoke_service_command(
         return AdapterResult(data=context.authorization.to_public_dict(), meta={})
     if operation == "retrieval.search":
         return await _invoke_retrieval_service(context, prepared)
+    if operation in {"pageIndex.get", "pageIndex.status", "pageIndex.build", "pageIndex.search"}:
+        return await _invoke_page_index_service(operation, context, prepared)
     if operation in {"chatSessions.invoke", "agentSessions.invoke"}:
         return await _invoke_session_service(operation, context, prepared)
     if operation in {
@@ -906,6 +954,92 @@ async def _invoke_retrieval_service(
     return AdapterResult(data=data, meta={"limit": limit, "hasNext": has_next, "nextCursor": next_cursor})
 
 
+async def _invoke_page_index_service(
+    operation: str,
+    context: RagFlowExecutionContext,
+    prepared: PreparedAuthorization,
+) -> AdapterResult:
+    if operation in {"pageIndex.get", "pageIndex.status"}:
+        dataset_id = str(prepared.path_args["dataset_id"])
+        document_id = str(prepared.path_args["document_id"])
+        found, dataset = KnowledgebaseService.get_by_id(dataset_id)
+        if not found:
+            raise BusinessGatewayError("RESOURCE_NOT_FOUND", "The requested resource was not found.", status=404, request_id=context.request_id)
+        if operation == "pageIndex.status":
+            document = Document.get_by_id(document_id)
+            available = await page_index_service.has_page_index(str(dataset.tenant_id), dataset_id, document_id)
+            return AdapterResult(
+                data={
+                    "datasetId": dataset_id,
+                    "documentId": document_id,
+                    "pageIndexAvailable": available,
+                    **page_index_service.page_index_status(document, available, str(dataset.tenant_id)),
+                }
+            )
+        return AdapterResult(data=await page_index_service.get_page_index(str(dataset.tenant_id), dataset_id, document_id))
+
+    if operation == "pageIndex.build":
+        dataset_id = str(prepared.path_args["dataset_id"])
+        document_ids = list(dict.fromkeys(str(value) for value in (prepared.payload or {}).get("documentIds") or []))
+        if not document_ids or len(document_ids) > page_index_service.MAX_PAGE_INDEX_DOCUMENTS:
+            raise BusinessGatewayError(
+                "INVALID_REQUEST",
+                f"documentIds must contain between 1 and {page_index_service.MAX_PAGE_INDEX_DOCUMENTS} documents.",
+                status=400,
+                request_id=context.request_id,
+            )
+        found, dataset = KnowledgebaseService.get_by_id(dataset_id)
+        if not found:
+            raise BusinessGatewayError("RESOURCE_NOT_FOUND", "The requested resource was not found.", status=404, request_id=context.request_id)
+        documents = [Document.get_by_id(document_id) for document_id in document_ids]
+        try:
+            await asyncio.to_thread(page_index_service.configure_page_index, str(dataset.tenant_id), documents)
+        except ValueError as error:
+            raise BusinessGatewayError("INVALID_REQUEST", str(error), status=400, request_id=context.request_id) from error
+        await asyncio.to_thread(_start_parse_documents, context, dataset_id, documents)
+        return AdapterResult(data={"successCount": len(documents)}, status=202)
+
+    body = _to_snake(dict(prepared.payload or {}))
+    question = str(body.get("question") or "").strip()
+    document_ids = list(dict.fromkeys(str(value) for value in body.get("document_ids") or []))
+    if not question:
+        raise BusinessGatewayError("INVALID_REQUEST", "question must not be empty.", status=400, request_id=context.request_id)
+    if not document_ids:
+        raise BusinessGatewayError("INVALID_REQUEST", "documentIds must contain at least one document.", status=400, request_id=context.request_id)
+    if len(document_ids) > page_index_service.MAX_PAGE_INDEX_DOCUMENTS:
+        raise BusinessGatewayError(
+            "INVALID_REQUEST",
+            f"documentIds accepts at most {page_index_service.MAX_PAGE_INDEX_DOCUMENTS} documents.",
+            status=400,
+            request_id=context.request_id,
+        )
+    dataset_ids = {str(value) for value in body.get("dataset_ids") or []}
+    if not dataset_ids:
+        raise BusinessGatewayError("INVALID_REQUEST", "datasetIds must contain at least one dataset.", status=400, request_id=context.request_id)
+    if len(dataset_ids) > page_index_service.MAX_PAGE_INDEX_DOCUMENTS:
+        raise BusinessGatewayError(
+            "INVALID_REQUEST",
+            f"datasetIds accepts at most {page_index_service.MAX_PAGE_INDEX_DOCUMENTS} datasets.",
+            status=400,
+            request_id=context.request_id,
+        )
+    datasets = {str(item.id): item for item in KnowledgebaseService.get_by_ids(list(dataset_ids))}
+    document_rows = {str(row.id): str(row.kb_id) for row in Document.select(Document.id, Document.kb_id).where(Document.id.in_(document_ids))}
+    scopes: list[tuple[str, str, str]] = []
+    for document_id in document_ids:
+        dataset_id = document_rows.get(document_id)
+        dataset = datasets.get(dataset_id or "")
+        if dataset is None:
+            raise BusinessGatewayError("RESOURCE_NOT_FOUND", "The requested resource was not found.", status=404, request_id=context.request_id)
+        scopes.append((str(dataset.tenant_id), dataset_id, document_id))
+    limit = _page_limit(body.get("limit", 24))
+    try:
+        data = await page_index_service.search_page_index(scopes, question, limit)
+    except ValueError as error:
+        raise BusinessGatewayError("INVALID_REQUEST", str(error), status=400, request_id=context.request_id) from error
+    return AdapterResult(data=data, meta={"limit": limit})
+
+
 def _retrieval_key(chunk: dict[str, Any]) -> tuple[int, str]:
     score = chunk.get("similarity", chunk.get("score", chunk.get("similarity_score", 0)))
     try:
@@ -1278,14 +1412,10 @@ async def _invoke_parse_service(
     context: RagFlowExecutionContext,
     prepared: PreparedAuthorization,
 ) -> AdapterResult:
-    from rag.nlp import search
-
     dataset_id = str(prepared.path_args["dataset_id"])
     document_ids = list((prepared.payload or {})["documentIds"])
 
     def execute() -> dict[str, Any]:
-        success_count = 0
-        kb_table_num_map: dict[str, Any] = {}
         documents = [Document.get_by_id(document_id) for document_id in document_ids]
         if operation == "documents.cancelParse":
             for doc in documents:
@@ -1297,33 +1427,47 @@ async def _invoke_parse_service(
                         status=409,
                         request_id=context.request_id,
                     )
+        if operation == "documents.startParse":
+            return _start_parse_documents(context, dataset_id, documents)
+        from rag.nlp import search
+
         for doc in documents:
             document_id = doc.id
-            if operation == "documents.startParse":
-                info = {"run": str(TaskStatus.RUNNING.value), "progress": 0}
-                if str(doc.run) == TaskStatus.DONE.value:
-                    DocumentService.clear_chunk_num_when_rerun(doc.id)
-                    info.update({"progress_msg": "", "chunk_num": 0, "token_num": 0})
-                DocumentService.update_by_id(document_id, info)
-                TaskService.filter_delete([Task.doc_id == document_id])
-                from rag.advanced_rag.knowlege_compile.dataset_nav import remove_dataset_nav_doc_sync
-
-                remove_dataset_nav_doc_sync(context.tenant_id, dataset_id, document_id)
-                index_name = search.index_name(context.tenant_id)
-                if settings.docStoreConn.index_exist(index_name, dataset_id):
-                    settings.docStoreConn.delete({"doc_id": document_id}, index_name, dataset_id)
-                DocumentService.run(context.tenant_id, doc.to_dict(), kb_table_num_map)
-            else:
+            if operation == "documents.cancelParse":
                 cancel_all_task_of(document_id)
                 release_reparse_counters(document_id)
                 DocumentService.update_by_id(document_id, {"run": str(TaskStatus.CANCEL.value), "progress": 0})
                 index_name = search.index_name(context.tenant_id)
                 if settings.docStoreConn.index_exist(index_name, dataset_id):
                     settings.docStoreConn.delete({"doc_id": document_id}, index_name, dataset_id)
-            success_count += 1
-        return {"successCount": success_count}
+        return {"successCount": len(documents)}
 
     return AdapterResult(data=await asyncio.to_thread(execute))
+
+
+def _start_parse_documents(
+    context: RagFlowExecutionContext,
+    dataset_id: str,
+    documents: list[Any],
+) -> dict[str, int]:
+    """Start parsing through the same RAGFlow service path used by Gateway parse."""
+    from rag.advanced_rag.knowlege_compile.dataset_nav import remove_dataset_nav_doc_sync
+    from rag.nlp import search
+
+    kb_table_num_map: dict[str, Any] = {}
+    index_name = search.index_name(context.tenant_id)
+    for doc in documents:
+        info = {"run": str(TaskStatus.RUNNING.value), "progress": 0}
+        if str(doc.run) == TaskStatus.DONE.value:
+            DocumentService.clear_chunk_num_when_rerun(doc.id)
+            info.update({"progress_msg": "", "chunk_num": 0, "token_num": 0})
+        DocumentService.update_by_id(doc.id, info)
+        TaskService.filter_delete([Task.doc_id == doc.id])
+        remove_dataset_nav_doc_sync(context.tenant_id, dataset_id, doc.id)
+        if settings.docStoreConn.index_exist(index_name, dataset_id):
+            settings.docStoreConn.delete({"doc_id": doc.id}, index_name, dataset_id)
+        DocumentService.run(context.tenant_id, doc.to_dict(), kb_table_num_map)
+    return {"successCount": len(documents)}
 
 
 def _row_result(resource: Any, context: RagFlowExecutionContext) -> AdapterResult:

@@ -26,10 +26,15 @@ import type {
   OperationBody,
   OperationQuery,
   PageRequest,
+  PageIndexResult,
+  PageIndexStatus,
+  PageIndexSearchResult,
   RequestOptions,
   RetrievalResult,
   RetrieveRequest,
   SearchMemoryMessagesRequest,
+  SearchPageIndexRequest,
+  BuildPageIndexRequest,
   Session,
   SessionTarget,
   UploadDocument,
@@ -481,6 +486,7 @@ export class RagFlowBusinessClient {
   readonly memories: MemoryClient
   readonly memoryMessages: MemoryMessageClient
   readonly retrieval: RetrievalClient
+  readonly pageIndex: PageIndexClient
 
   constructor(options: RagFlowBusinessClientOptions) {
     const transport = new BusinessGatewayTransport(options)
@@ -494,6 +500,7 @@ export class RagFlowBusinessClient {
     this.memories = new MemoryClient(transport)
     this.memoryMessages = new MemoryMessageClient(transport)
     this.retrieval = new RetrievalClient(transport)
+    this.pageIndex = new PageIndexClient(transport)
   }
 }
 
@@ -910,6 +917,38 @@ export class RetrievalClient {
         ...(request.tocEnhance === undefined ? {} : { tocEnhance: request.tocEnhance }),
         ...(request.highlight === undefined ? {} : { highlight: request.highlight }),
         ...(request.referenceMetadata === undefined ? {} : { referenceMetadata: request.referenceMetadata }),
+      },
+      options,
+    })
+  }
+}
+
+export class PageIndexClient {
+  constructor(private readonly transport: BusinessGatewayTransport) {}
+
+  get(datasetId: string, documentId: string, options: RequestOptions = {}): Promise<PageIndexResult> {
+    return this.transport.request('pageIndex.get', 'GET', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/page-index`, { options })
+  }
+
+  status(datasetId: string, documentId: string, options: RequestOptions = {}): Promise<PageIndexStatus> {
+    return this.transport.request('pageIndex.status', 'GET', `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/page-index/status`, { options })
+  }
+
+  build(datasetId: string, request: BuildPageIndexRequest, options: RequestOptions): Promise<OperationData<'pageIndex.build'>> {
+    return this.transport.request('pageIndex.build', 'POST', `/datasets/${encodeURIComponent(datasetId)}/documents:build-page-index`, {
+      json: request,
+      options,
+      idempotencyRequired: true,
+    })
+  }
+
+  search(request: SearchPageIndexRequest, options: RequestOptions = {}): Promise<GatewayResult<PageIndexSearchResult>> {
+    return this.transport.requestEnvelope('pageIndex.search', 'POST', '/page-index/retrieval', {
+      json: {
+        datasetIds: request.datasetIds,
+        documentIds: request.documentIds,
+        question: request.question,
+        ...(request.limit === undefined ? {} : { limit: request.limit }),
       },
       options,
     })

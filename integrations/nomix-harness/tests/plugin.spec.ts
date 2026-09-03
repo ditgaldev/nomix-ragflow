@@ -90,7 +90,7 @@ describe('Service / Provider / Consumer composition', () => {
       accessTokenRef: 'BUSINESS_TOKEN',
       agentPresets: ['knowledge-worker'],
     })
-    expect([...harness.definitions]).toHaveLength(10)
+    expect([...harness.definitions]).toHaveLength(11)
     expect([...harness.definitions.values()].every(definition => definition.timeoutMs === 90_000)).toBe(true)
     expect(harness.approvalHooks).toHaveLength(1)
     expect('tools' in harness.root).toBe(false)

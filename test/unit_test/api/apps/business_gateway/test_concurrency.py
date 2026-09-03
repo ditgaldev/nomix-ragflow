@@ -16,6 +16,9 @@ def _install_model_stubs(monkeypatch):
     for name in ("API4Conversation", "Conversation", "Dialog", "Document", "Knowledgebase", "Memory", "UserCanvas"):
         setattr(module, name, type(name, (), {}))
     monkeypatch.setitem(sys.modules, "api.db.db_models", module)
+    quart = ModuleType("quart")
+    quart.jsonify = lambda value: value
+    monkeypatch.setitem(sys.modules, "quart", quart)
 
 
 @pytest.mark.p1
@@ -100,6 +103,59 @@ def test_version_check_runs_inside_a_distributed_gateway_lock(monkeypatch, gatew
     assert mutation_lease is not None
     asyncio.run(mutation_lease.release())
     assert locks[-1].released is True
+
+    monkeypatch.setattr(concurrency.Knowledgebase, "id", Field(), raising=False)
+    monkeypatch.setattr(
+        concurrency.Knowledgebase,
+        "get_or_none",
+        classmethod(lambda _cls, _condition: SimpleNamespace(id="dataset-a")),
+        raising=False,
+    )
+    page_index_lease = asyncio.run(
+        manager.acquire_mutation(
+            SimpleNamespace(operation="pageIndex.build"),
+            context,
+            SimpleNamespace(path_args={"dataset_id": "dataset-a"}, document_ids=frozenset({"document-b", "document-a"})),
+        )
+    )
+    assert page_index_lease is not None
+    assert [lock.key for lock in locks[-3:]] == [
+        concurrency._lock_key("tenant-a", "page-index-tenant", "tenant-a"),
+        concurrency._lock_key("tenant-a", "document", "document-a"),
+        concurrency._lock_key("tenant-a", "document", "document-b"),
+    ]
+    asyncio.run(page_index_lease.release())
+    assert all(lock.released for lock in locks[-3:])
+
+    parse_lease = asyncio.run(
+        manager.acquire_mutation(
+            SimpleNamespace(operation="documents.startParse"),
+            context,
+            SimpleNamespace(path_args={"dataset_id": "dataset-a"}, document_ids=frozenset({"document-b", "document-a"})),
+        )
+    )
+    assert parse_lease is not None
+    assert [lock.key for lock in locks[-2:]] == [
+        concurrency._lock_key("tenant-a", "document", "document-a"),
+        concurrency._lock_key("tenant-a", "document", "document-b"),
+    ]
+    asyncio.run(parse_lease.release())
+    assert all(lock.released for lock in locks[-2:])
+
+    page_index_recovery_lease = asyncio.run(
+        manager.acquire_recovery(
+            SimpleNamespace(operation="pageIndex.build"),
+            context,
+            SimpleNamespace(path_args={"dataset_id": "dataset-a"}, document_ids=frozenset({"document-a"})),
+        )
+    )
+    assert page_index_recovery_lease is not None
+    assert [lock.key for lock in locks[-2:]] == [
+        concurrency._lock_key("tenant-a", "page-index-tenant", "tenant-a"),
+        concurrency._lock_key("tenant-a", "document", "document-a"),
+    ]
+    asyncio.run(page_index_recovery_lease.release())
+    assert all(lock.released for lock in locks[-2:])
 
     recovery_lease = asyncio.run(
         manager.acquire_recovery(

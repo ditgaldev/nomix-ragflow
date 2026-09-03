@@ -139,6 +139,7 @@ NOMIX_BG_ENABLED=true quart --app api.apps business-gateway migrate
 
 - `business_gateway_workspace_binding`
 - `business_gateway_idempotency`
+- `business_gateway_execution_intent`
 - `business_gateway_audit_event`
 - `business_gateway_schema_migration`
 
@@ -177,6 +178,7 @@ message 在服务端绑定、查询并逐项校验该 subject；客户端的 `us
 |---|---|
 | 授权上下文发现 | `authorization:read` |
 | 检索 | `knowledge:retrieve` |
+| PageIndex 构建/状态/章节树检索 | 构建需 `compilation:write`, `dataset:read`, `document:read`, `document:update`, `document:parse`；状态/读取需 `document:read` + `dataset:read`；检索另需 `knowledge:retrieve` |
 | Dataset | `dataset:read`, `dataset:create`, `dataset:update`, `dataset:delete` |
 | Document | `document:read`, `document:upload`, `document:update`, `document:delete`, `document:parse` |
 | Chunk | `chunk:read`, `chunk:create`, `chunk:update`, `chunk:delete` |
@@ -212,6 +214,9 @@ session/message 再叠加 subject 隔离。这样 tenant 只是最外层边界�
   返回 404，不部分执行，也不指出哪个 ID 越权。
 - 检索未提供 `datasetIds` 时，Gateway 注入服务端计算出的有效 dataset 范围；范围
   为空时返回空结果，绝不枚举原始 API Key 可见数据集。
+- PageIndex 构建、状态和读取使用路径中的 dataset/document 做双重归属校验。构建通过路径
+  指定一个 dataset，并显式提供 1–20 个 `documentIds`；检索显式提供 `datasetIds` 和
+  1–20 个 `documentIds`。两者都不会扫描整个授权知识库，所有文档必须属于请求中的已授权 dataset。
 - Dataset/document/chunk 的列表、详情、下载、更新、删除、解析和统计使用同一范围。
 - 批量写在任何副作用之前逐项预检，最多接受 1000 个非空字符串 ID；不存在
   `deleteAll`。
@@ -229,11 +234,64 @@ session/message 再叠加 subject 隔离。这样 tenant 只是最外层边界�
 
 ```bash
 curl --fail-with-body \
+  -X POST \
+  -H "Authorization: Bearer $BUSINESS_ACCESS_TOKEN" \
+  -H "Idempotency-Key: upload-handbook" \
+  -F "file=@./handbook.pdf" \
+  https://ragflow-business.example.com/api/v1/datasets/$DATASET_ID/documents
+
+# 普通混合检索；PageIndex 构建与检索示例见下一节。
+curl --fail-with-body \
   -H "Authorization: Bearer $BUSINESS_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   https://ragflow-business.example.com/api/v1/retrieval \
   --data '{"question":"销售合同的续签规则是什么？","limit":20}'
 ```
+
+Gateway 暴露两条相关但不同的 RAGFlow 原生路径：`POST /retrieval` 的 `tocEnhance=true`
+先执行普通 chunk 检索，再调用 RAGFlow 的 `retrieval_by_toc` 补充目录上下文；专用 PageIndex
+接口则读取知识编译产生的 `page_index` artifact，提供显式构建、状态、完整章节树和章节优先
+检索，不把两种语义混为一条隐式 fallback。
+
+专用 PageIndex 接口提供从上传后文档到章节树检索的闭环。上传取得文档 ID 后，构建接口优先复用
+现有的单 PageIndex 文件级编译组；不存在时才从内置模板创建标准编译组。Gateway 对写命令
+互斥提交，后台解析完全使用 RAGFlow 原有
+Document/Task/Redis worker 模型。相同幂等键发生中断时，恢复逻辑用执行前 Task 集合和
+Document.run 判断哪些文档已经启动；只有新增 Task 才证明调度已完成，单独出现 `RUNNING`
+但没有 Task 时会重新调用 RAGFlow 解析入口。状态接口的 `state` 为
+`not_configured | pending | running | ready | failed | cancelled`，直接映射 RAGFlow 的
+`Document.run/progress/progress_msg` 与 PageIndex 产物是否存在；`phase`、`errorCode` 和
+`errorMessage` 只提供有界解释，不建立第二套运行状态。编译组从内置 `page_index` 模板派生，
+并保留文档已有编译组。构建请求是幂等写：
+
+```bash
+curl --fail-with-body \
+  -X POST \
+  -H "Authorization: Bearer $BUSINESS_ACCESS_TOKEN" \
+  -H "Idempotency-Key: page-index-document-id" \
+  -H "Content-Type: application/json" \
+  https://ragflow-business.example.com/api/v1/datasets/$DATASET_ID/documents:build-page-index \
+  --data '{"documentIds":["document-id"]}'
+
+curl --fail-with-body \
+  -H "Authorization: Bearer $BUSINESS_ACCESS_TOKEN" \
+  https://ragflow-business.example.com/api/v1/datasets/$DATASET_ID/documents/$DOCUMENT_ID/page-index/status
+
+curl --fail-with-body \
+  -H "Authorization: Bearer $BUSINESS_ACCESS_TOKEN" \
+  https://ragflow-business.example.com/api/v1/datasets/$DATASET_ID/documents/$DOCUMENT_ID/page-index
+
+curl --fail-with-body \
+  -H "Authorization: Bearer $BUSINESS_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  https://ragflow-business.example.com/api/v1/page-index/retrieval \
+  --data '{"datasetIds":["dataset-id"],"documentIds":["document-id"],"question":"部署流程在哪一章？","limit":24}'
+```
+
+检索先在 PageIndex 节点上做关键词/语义定位，再沿 `include` 父级关系返回完整章节路径，
+并读取这些节点的 `source_chunk_ids`。响应同时包含 `navigation.documents[].paths` 和
+`chunks`。没有 PageIndex 或没有节点命中时返回空结果，`fallbackUsed=false`；调用方如需
+普通混合检索，应明确调用 `/retrieval`。
 
 写操作按 manifest 要求携带幂等键：
 
@@ -317,12 +375,23 @@ const result = await client.retrieval.search(
   { question: '列出客户约定的 SLA' },
   { signal: abortController.signal },
 )
+await client.pageIndex.build('dataset-id', { documentIds: ['document-id'] }, { idempotencyKey: 'page-index-document-id' })
+const pageIndexStatus = await client.pageIndex.status('dataset-id', 'document-id')
+const pageIndex = await client.pageIndex.get('dataset-id', 'document-id')
+const routed = await client.pageIndex.search({
+  datasetIds: ['dataset-id'],
+  documentIds: ['document-id'],
+  question: '部署流程在哪一章？',
+})
 
 console.log(result.data.chunks)
 console.log(result.meta.nextCursor)
+console.log(pageIndexStatus)
+console.log(pageIndex.templates)
+console.log(routed.data.navigation, routed.data.chunks)
 ```
 
-Client 的分页列表和 retrieval 保留 REST 的 `{data, meta}` envelope，下一页必须原样
+Client 的分页列表、retrieval 和 PageIndex search 保留 REST 的 `{data, meta}` envelope，下一页必须原样
 传回 `meta.nextCursor`，不得解析或自行构造 cursor。
 
 Harness 配置：
@@ -371,6 +440,7 @@ invoke 和管理操作均不再通过字段探测、响应猜测或类型强转�
 |---|---|---|
 | `GET /gateway-context` | `authorization.getContext` | `ragflow_discover` |
 | `POST /retrieval` | `retrieval.search` | `ragflow_retrieval` |
+| PageIndex 构建、状态、章节树与检索 | `pageIndex.build/status/get/search` | `ragflow_page_index` |
 | `/datasets*` CRUD/list | `datasets.*` | `ragflow_manage_datasets` |
 | dataset metadata config | `datasets.getMetadataConfig/updateMetadataConfig` | `ragflow_manage_documents` |
 | `/datasets/{datasetId}/documents*` | `documents.*` | `ragflow_manage_documents` |
@@ -441,6 +511,9 @@ Idempotency-Key、token 和对象 key 不写入该索引。
 - chunk 创建验证确定性 chunk ID；chunk 删除重放幂等清理并按文档索引权威计数修正
   `chunk_num`。
 - parse/cancel 通过执行前 task ID 集合及 document run 状态证明新任务或取消状态。
+- PageIndex 构建沿用 RAGFlow 的编译组、Document、Task 和 Redis 入队语义；恢复通过执行前
+  Task ID 集合与 Document.run 判断是否已启动。新增 Task 才证明调度完成；`RUNNING` 但没有
+  Task 时会重放原生解析入口，其他无法证明的状态变化继续失败关闭。
 
 恢复成功会以 `X-Idempotent-Replay: true`、`X-Idempotency-Recovered: true` 返回，并在同一
 数据库事务中完成幂等 CAS 和 `recovered` 审计。探测依赖不可用、证据不完整，或 operation
@@ -494,6 +567,10 @@ Idempotency-Key、token 和对象 key 不写入该索引。
 `RequestOptions.version` 生成 `If-Match`；版本缺失返回 428，版本过期返回
 `VERSION_CONFLICT` 409。chunk 以父 document 为并发边界，memory message 以父 memory
 为并发边界。批量操作没有伪造复合 ETag，而是依靠显式 ID、逐项预检和幂等语义。
+PageIndex 构建以 tenant 级锁保护标准编译组，并按 document ID 固定顺序获取 Gateway 文档
+锁；正常执行和幂等恢复使用相同锁键，因此不会与 Gateway 文档更新、删除、解析或取消并发
+覆盖配置与解析状态。
+锁内的解析调度、锁释放后的执行、取消和终态判断全部沿用 RAGFlow 自身语义。
 
 每次已认证请求追加审计事件，包括 requestId、subject/actor/on-behalf-of、workspace、
 tenant、operation、action、资源 ID、REST/Agent 调用标记、结果、HTTP 状态、耗时、

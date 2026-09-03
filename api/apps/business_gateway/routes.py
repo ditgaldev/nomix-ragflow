@@ -530,7 +530,7 @@ def _limit(query: dict[str, Any]) -> int:
 def _semantic_status(capability: Capability) -> int:
     if capability.operation.endswith(".create") or capability.operation in {"datasets.create", "documents.upload", "memoryMessages.batchCreate"}:
         return 201
-    if capability.operation in {"documents.startParse", "documents.cancelParse"}:
+    if capability.operation in {"documents.startParse", "documents.cancelParse", "pageIndex.build"}:
         return 202
     return 200
 

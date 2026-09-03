@@ -28,6 +28,7 @@ class ScopeRule:
 _PREFIX_RULES: dict[str, ScopeRule] = {
     "authorization": ScopeRule("authorization", "subject"),
     "retrieval": ScopeRule("knowledge", "tenant-acl"),
+    "pageIndex": ScopeRule("knowledge", "tenant-acl"),
     "datasets": ScopeRule("dataset", "tenant-acl"),
     "documents": ScopeRule("document", "tenant-acl"),
     "chunks": ScopeRule("chunk", "tenant-acl"),

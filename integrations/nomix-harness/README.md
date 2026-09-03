@@ -36,8 +36,23 @@ const datasets = await ragflow.datasets.list({ limit: 20 })
 const retrieval = await ragflow.retrieval.search({
   question: 'What changed in the latest release?',
 })
+const uploaded = await ragflow.documents.upload('dataset-id', [{
+  displayName: 'handbook.pdf',
+  body: new Blob([documentBytes], { type: 'application/pdf' }),
+}], { idempotencyKey: 'upload-handbook' })
+const documentIds = uploaded.map(document => document.id)
+await ragflow.pageIndex.build('dataset-id', { documentIds }, { idempotencyKey: 'page-index-handbook' })
+// Poll until state is ready, failed, or cancelled; use phase/errorCode to handle failures.
+const pageIndexStatus = await ragflow.pageIndex.status('dataset-id', documentIds[0])
+const pageIndex = await ragflow.pageIndex.get('dataset-id', documentIds[0])
+const routed = await ragflow.pageIndex.search({
+  datasetIds: ['dataset-id'],
+  documentIds,
+  question: 'Where is deployment covered?',
+})
 console.log(datasets.data, datasets.meta.nextCursor)
 console.log(retrieval.data.chunks, retrieval.meta.nextCursor)
+console.log(pageIndexStatus, pageIndex.templates, routed.data.navigation, routed.data.chunks)
 ```
 
 Every request supports `AbortSignal`. Required write operations also require an
@@ -48,7 +63,7 @@ throw `BusinessGatewayError` with `code`, `status`, `requestId`, `details`,
 until the complete response body has been consumed. The client has no option for
 trusted tenant, workspace, subject, action, scope, or arbitrary authorization
 headers; those values come exclusively from the verified business token.
-Paginated list methods and retrieval retain the Gateway `{ data, meta }`
+Paginated list methods, retrieval, and PageIndex search retain the Gateway `{ data, meta }`
 envelope so callers can pass `meta.nextCursor` to the next request.
 Success bodies are streamed into a bounded buffer (16 MiB by default, 64 MiB
 hard maximum); Gateway error bodies have a separate 64 KiB parsing ceiling.
@@ -106,8 +121,8 @@ The plugin marks requests as `agent` for audit classification only; standalone
 clients default to `rest`. That closed marker never affects identity, actions,
 workspace, or data scope. REST and Agent calls use the same authorization path.
 
-The ten tools include `ragflow_discover` plus retrieval, datasets, documents,
-transfers, chunks, chats, sessions, agents, and memories. Discovery returns only
+The eleven tools include `ragflow_discover` plus retrieval, PageIndex, datasets,
+documents, transfers, chunks, chats, sessions, agents, and memories. Discovery returns only
 a redacted authorization summary (availability, authentication shape, action
 count, and scope modes/counts); it never exposes subjects, workspace IDs,
 permission references, action names, or raw scope IDs. Every Agent write must
@@ -123,6 +138,27 @@ discriminated `status`, `summary`, `data`, `nextActions`, and `artifacts`
 contract. Small JSON is represented as typed JSON-pointer entries. Larger
 results are stored in the Agent/session spill plane and only an artifact
 reference is exposed to the model.
+
+RAGFlow's retrieval-time table-of-contents enhancement remains available through
+`ragflow_retrieval` with `tocEnhance: true`; it starts from ordinary chunk matches and
+adds directory context. The separate `ragflow_page_index` tool works with compiled
+PageIndex artifacts and covers their post-upload build, readiness, explicit tree access,
+and chapter-first retrieval loop. The complete upload-to-build workflow needs upload and
+read grants; `build` itself requires `compilation:write`, `dataset:read`, `document:read`,
+`document:update`, and `document:parse`. Upload with `ragflow_transfer_documents.upload` and retain the returned document
+IDs, then call `build` with an `operationId`. It reuses an existing single-PageIndex
+file-scope group, or creates a normal RAGFlow group from the built-in `page_index` template,
+preserves existing groups,
+binds the documents, and starts parsing. `build` is an approved, idempotent write. Poll
+the read-only `status` action until `state` is `ready` (`pageIndexAvailable` is then true),
+or reaches the terminal `failed`/`cancelled` state. Status is projected from RAGFlow's native
+document run/progress fields and compiled PageIndex artifact; `phase`, `errorCode`, and
+`errorMessage` provide a bounded interpretation without introducing a second worker state model.
+`get` returns all compiled PageIndex template trees for the document; `search` accepts one to 20 explicit dataset IDs
+and one to 20 explicit document IDs, tries exact/BM25 node matching first and the document embedding model as fallback,
+walks ancestor paths,
+and returns the navigation trace and linked chunks. Missing trees or unmatched nodes
+produce an empty result and never silently fall back to ordinary retrieval.
 
 Agent operation bindings and all-write approval are derived from the canonical
 capability manifest. Harness metadata also declares Agent/provider selection,
@@ -183,6 +219,17 @@ Licensed under Apache-2.0.
 
 ## Release
 
-Create the GitHub Environment `npm-publish`, grant `@nomix-ai` publish access,
-and add a fine-grained `NPM_TOKEN` with publish and 2FA-bypass permission. The
-release workflow verifies supported platforms before publishing with provenance.
+Release in two explicit stages:
+
+1. Push the development branch and the `nomix-v<version>` tag. The tag workflow
+   uses the lockfile to run the Gateway contract check, typecheck, lint, tests, and build on every
+   supported platform. It does not create a package or publish to npm.
+2. After every tag check passes, push the same verified commit to the
+   `npm-nomix-ragflow` branch. That branch run creates and audits the tarball,
+   verifies installation in an independent consumer and Harness profile, then
+   publishes that exact artifact to npm with provenance.
+
+The tag and `npm-nomix-ragflow` branch must resolve to the same commit. Create the
+GitHub Environment `npm-publish`, grant `@nomix-ai` publish access, and add a
+fine-grained `NPM_TOKEN` with publish and 2FA-bypass permission. Never push the
+publishing branch before the tag checks pass.

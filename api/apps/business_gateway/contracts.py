@@ -131,6 +131,19 @@ def _contracts() -> dict[str, RequestContract]:
             ("question",),
         ),
     )
+    add(
+        ("pageIndex.search",),
+        body=_object(
+            {
+                "datasetIds": {"type": "array", "items": S, "minItems": 1, "maxItems": 20},
+                "documentIds": {"type": "array", "items": S, "minItems": 1, "maxItems": 20},
+                "question": S,
+                "limit": I,
+            },
+            ("datasetIds", "documentIds", "question"),
+        ),
+    )
+    add(("pageIndex.build",), body=_object({"documentIds": {"type": "array", "items": S, "minItems": 1, "maxItems": 20}}, ("documentIds",)))
     add(("datasets.list",), query=_object({**PAGE, "id": S, "ids": SA, "name": S}))
     add(("datasets.create",), body=_object(DATASET_FIELDS, ("name",)))
     add(("datasets.update",), body=_object(DATASET_FIELDS))
@@ -194,6 +207,8 @@ def _contracts() -> dict[str, RequestContract]:
         "datasets.get",
         "datasets.getMetadataConfig",
         "documents.get",
+        "pageIndex.get",
+        "pageIndex.status",
         "documents.download",
         "chunks.get",
         "chats.get",

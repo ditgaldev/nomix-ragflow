@@ -57,6 +57,8 @@ describe('all Agent writes require one-time approval', () => {
   it.each([
     ['ragflow_discover', { action: 'context' }],
     ['ragflow_retrieval', {}],
+    ['ragflow_page_index', { action: 'get' }],
+    ['ragflow_page_index', { action: 'status' }],
     ['ragflow_manage_datasets', { action: 'list' }],
     ['ragflow_manage_documents', { action: 'list' }],
     ['ragflow_manage_chunks', { action: 'list' }],
@@ -80,7 +82,7 @@ describe('all Agent writes require one-time approval', () => {
 })
 
 describe('Business Gateway Agent tools', () => {
-  function setup() {
+  function setup(pageIndexState: 'ready' | 'not_configured' = 'ready') {
     const agent = { id: 'ragflow-agent-a' }
     const definitions: Array<{
       name: string
@@ -91,6 +93,14 @@ describe('Business Gateway Agent tools', () => {
       execute: (args: { input: Record<string, unknown> }, exec: { signal: AbortSignal; callId: string; name: string; agent: typeof agent }) => Promise<unknown>
     }> = []
     const search = vi.fn(async (_input: unknown, _options: RequestOptions) => ({ data: { chunks: [{ id: 'chunk-1', content: 'answer' }], total: 1, docAggs: {} }, meta: { requestId: 'request-search' } }))
+    const getPageIndex = vi.fn(async () => ({ datasetId: 'dataset-1', documentId: 'document-1', templates: [] }))
+    const getPageIndexStatus = vi.fn(async () => ({
+      datasetId: 'dataset-1', documentId: 'document-1', run: pageIndexState === 'ready' ? 'DONE' : 'UNSTART',
+      progress: pageIndexState === 'ready' ? 1 : 0, progressMessage: '', pageIndexAvailable: pageIndexState === 'ready',
+      state: pageIndexState, phase: pageIndexState === 'ready' ? 'complete' : null, errorCode: null, errorMessage: null, updatedAt: 42,
+    }))
+    const buildPageIndex = vi.fn(async () => ({ successCount: 1 }))
+    const searchPageIndex = vi.fn(async () => ({ data: { chunks: [], total: 0, docAggs: [], navigation: { documents: [], fallbackUsed: false } }, meta: {} }))
     const deleteDataset = vi.fn(async (_id: string, _options: { signal: AbortSignal; idempotencyKey: string; version: number }) => ({ successCount: 1 }))
     const createMemory = vi.fn(async (_input: unknown, _options: RequestOptions) => ({ id: 'memory-1' }))
     const batchCreateMessages = vi.fn(async (_input: unknown, _options: RequestOptions) => ({ successCount: 1 }))
@@ -122,6 +132,7 @@ describe('Business Gateway Agent tools', () => {
       memoryMessages: { batchCreate: batchCreateMessages },
       documents: { upload, download },
       retrieval: { search },
+      pageIndex: { get: getPageIndex, status: getPageIndexStatus, build: buildPageIndex, search: searchPageIndex },
     } as never
     const spillText = vi.fn(async (_exec, input: { name: string; mimeType: string; content: string }): Promise<RagFlowToolArtifact> => ({
       kind: 'spill', name: input.name, locator: `/spill/${input.name}`, mimeType: input.mimeType, encoding: 'utf8',
@@ -141,8 +152,9 @@ describe('Business Gateway Agent tools', () => {
     const dispose = registerRagFlowTools(ctx, services)
     const execution = (name: string, callId: string) => ({ signal: new AbortController().signal, callId, name, agent })
     const retrieval = definitions.find(definition => definition.name === 'ragflow_retrieval')!
+    const pageIndex = definitions.find(definition => definition.name === 'ragflow_page_index')!
     const datasets = definitions.find(definition => definition.name === 'ragflow_manage_datasets')!
-    return { agent, batchCreateMessages, createMemory, datasets, definitions, deleteDataset, dispose, download, execution, getContext, retrieval, search, spillText, upload }
+    return { agent, batchCreateMessages, buildPageIndex, createMemory, datasets, definitions, deleteDataset, dispose, download, execution, getContext, getPageIndex, getPageIndexStatus, pageIndex, retrieval, search, searchPageIndex, spillText, upload }
   }
 
   it('registers stable names with closed schemas, concurrency semantics, and reversible cleanup', () => {
@@ -157,6 +169,11 @@ describe('Business Gateway Agent tools', () => {
     expect(retrieval.isConcurrencySafe?.({ input: { question: 'q' } })).toBe(true)
     expect(datasets.isConcurrencySafe?.({ input: { action: 'list' } })).toBe(true)
     expect(datasets.isConcurrencySafe?.({ input: { action: 'delete' } })).toBe(false)
+    const pageIndex = definitions.find(definition => definition.name === 'ragflow_page_index')!
+    expect(pageIndex.isConcurrencySafe?.({ input: { action: 'status', datasetId: 'dataset-1', documentId: 'document-1' } })).toBe(true)
+    expect(pageIndex.isConcurrencySafe?.({ input: {
+      action: 'build', operationId: 'page-index-build', datasetId: 'dataset-1', documentIds: ['document-1'],
+    } })).toBe(false)
     dispose()
     expect(definitions).toEqual([])
   })
@@ -172,6 +189,68 @@ describe('Business Gateway Agent tools', () => {
     })
     expect(search).toHaveBeenCalledWith(expect.objectContaining({ question: 'Search my authorized scope', datasetIds: undefined, limit: 5 }), expect.objectContaining({ signal: exec.signal }))
     expect(search.mock.calls[0]![1]).not.toHaveProperty('headers')
+  })
+
+  it('reads and searches PageIndex through its dedicated bounded tool', async () => {
+    const { execution, getPageIndex, getPageIndexStatus, pageIndex, searchPageIndex } = setup()
+    await pageIndex.execute({ input: { action: 'get', datasetId: 'dataset-1', documentId: 'document-1' } }, execution('ragflow_page_index', 'page-index-get'))
+    await expect(pageIndex.execute(
+      { input: { action: 'status', datasetId: 'dataset-1', documentId: 'document-1' } },
+      execution('ragflow_page_index', 'page-index-status'),
+    )).resolves.toMatchObject({ nextActions: [expect.stringContaining('ragflow_page_index.get')] })
+    await expect(pageIndex.execute({ input: {
+      action: 'search', datasetIds: ['dataset-1'], documentIds: ['document-1'], question: 'Where is deployment covered?', limit: 8,
+    } }, execution('ragflow_page_index', 'page-index-search'))).resolves.toMatchObject({
+      status: 'success', data: { kind: 'retrieval', format: 'json-entries', truncated: false }, artifacts: [],
+    })
+    expect(getPageIndex).toHaveBeenCalledWith('dataset-1', 'document-1', expect.any(Object))
+    expect(getPageIndexStatus).toHaveBeenCalledWith('dataset-1', 'document-1', expect.any(Object))
+    expect(searchPageIndex).toHaveBeenCalledWith({ datasetIds: ['dataset-1'], documentIds: ['document-1'], question: 'Where is deployment covered?', limit: 8 }, expect.any(Object))
+  })
+
+  it('directs an unconfigured PageIndex status to build instead of polling forever', async () => {
+    const { execution, pageIndex } = setup('not_configured')
+    await expect(pageIndex.execute(
+      { input: { action: 'status', datasetId: 'dataset-1', documentId: 'document-1' } },
+      execution('ragflow_page_index', 'page-index-not-configured'),
+    )).resolves.toMatchObject({ nextActions: [expect.stringContaining('ragflow_page_index.build')] })
+  })
+
+  it('configures and starts PageIndex parsing as an approved idempotent write', async () => {
+    const { buildPageIndex, execution, pageIndex } = setup()
+    await expect(pageIndex.execute({ input: {
+      action: 'build', operationId: 'build-page-index-doc-1', datasetId: 'dataset-1', documentIds: ['document-1'],
+    } }, execution('ragflow_page_index', 'page-index-build'))).resolves.toMatchObject({
+      status: 'success', summary: expect.stringContaining('Configured PageIndex'), data: { kind: 'mutation' },
+    })
+    expect(buildPageIndex).toHaveBeenCalledWith(
+      'dataset-1',
+      { documentIds: ['document-1'] },
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
+    )
+  })
+
+  it('rejects an unbounded PageIndex document scan before transport', async () => {
+    const { buildPageIndex, execution, pageIndex, searchPageIndex } = setup()
+    await expect(pageIndex.execute({ input: {
+      action: 'search',
+      datasetIds: ['dataset-1'],
+      documentIds: Array.from({ length: 21 }, (_, index) => `document-${index}`),
+      question: 'scan',
+    } }, execution('ragflow_page_index', 'page-index-unbounded'))).rejects.toThrow(/between 1 and 20/)
+    expect(searchPageIndex).not.toHaveBeenCalled()
+    await expect(pageIndex.execute({ input: {
+      action: 'search',
+      datasetIds: Array.from({ length: 21 }, (_, index) => `dataset-${index}`),
+      documentIds: ['document-1'],
+      question: 'scan',
+    } }, execution('ragflow_page_index', 'page-index-unbounded-datasets'))).rejects.toThrow(/between 1 and 20|oneOf/)
+    expect(searchPageIndex).not.toHaveBeenCalled()
+    await expect(pageIndex.execute({ input: {
+      action: 'build', operationId: 'page-index-unbounded-build', datasetId: 'dataset-1',
+      documentIds: Array.from({ length: 21 }, (_, index) => `document-${index}`),
+    } }, execution('ragflow_page_index', 'page-index-unbounded-build'))).rejects.toThrow(/between 1 and 20|oneOf/)
+    expect(buildPageIndex).not.toHaveBeenCalled()
   })
 
   it('rejects fractional values for integer Gateway fields before calling the client', async () => {

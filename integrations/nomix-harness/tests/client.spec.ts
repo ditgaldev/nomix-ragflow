@@ -40,12 +40,23 @@ describe('RagFlowBusinessClient contracts', () => {
         data = { id: 'dataset-1', version: 1, name: 'docs' }
       } else if (request.method === 'PATCH' && url.startsWith('/api/v1/datasets/')) {
         data = { id: 'dataset-1', version: 8, name: 'new' }
+      } else if (url.endsWith(':build-page-index')) {
+        data = { successCount: 1 }
       } else if (url.endsWith(':parse') || url.endsWith(':cancel-parse') || url.endsWith(':batch-delete') || request.method === 'DELETE' || url.includes('/messages/')) {
         data = { successCount: 1 }
       } else if (url.endsWith(':invoke')) {
         data = { content: 'answer', role: 'assistant', sessionId: 's' }
       } else if (url === '/api/v1/retrieval') {
         data = { chunks: [], total: 0, docAggs: {} }
+      } else if (request.method === 'GET' && url.endsWith('/page-index')) {
+        data = { datasetId: 'd s', documentId: 'doc/1', templates: [] }
+      } else if (request.method === 'GET' && url.endsWith('/page-index/status')) {
+        data = {
+          datasetId: 'd s', documentId: 'doc/1', run: 'DONE', progress: 1, progressMessage: '',
+          pageIndexAvailable: true, state: 'ready', phase: 'complete', errorCode: null, errorMessage: null, updatedAt: 42,
+        }
+      } else if (url === '/api/v1/page-index/retrieval') {
+        data = { chunks: [], total: 0, docAggs: [], navigation: { documents: [], fallbackUsed: false } }
       }
       response.end(JSON.stringify({ data, meta: { requestId: 'request-1' } }))
     }
@@ -71,6 +82,10 @@ describe('RagFlowBusinessClient contracts', () => {
     ['agent delete', async (client: RagFlowBusinessClient) => client.agents.delete('agent', { version: 8 }), 'DELETE', '/api/v1/agents/agent', {}, undefined, '8'],
     ['memory status', async (client: RagFlowBusinessClient) => client.memoryMessages.update('mem', 8, { status: true }, { version: 9 }), 'PATCH', '/api/v1/memories/mem/messages/8', { status: true }, undefined, '9'],
     ['retrieval', async (client: RagFlowBusinessClient) => client.retrieval.search({ datasetIds: ['d'], question: 'q' }), 'POST', '/api/v1/retrieval', { question: 'q', datasetIds: ['d'] }, undefined, undefined],
+    ['PageIndex get', async (client: RagFlowBusinessClient) => client.pageIndex.get('d s', 'doc/1'), 'GET', '/api/v1/datasets/d%20s/documents/doc%2F1/page-index', undefined, undefined, undefined],
+    ['PageIndex status', async (client: RagFlowBusinessClient) => client.pageIndex.status('d s', 'doc/1'), 'GET', '/api/v1/datasets/d%20s/documents/doc%2F1/page-index/status', undefined, undefined, undefined],
+    ['PageIndex build', async (client: RagFlowBusinessClient) => client.pageIndex.build('d s', { documentIds: ['doc/1'] }, { idempotencyKey: 'page-index-1' }), 'POST', '/api/v1/datasets/d%20s/documents:build-page-index', { documentIds: ['doc/1'] }, 'page-index-1', undefined],
+    ['PageIndex search', async (client: RagFlowBusinessClient) => client.pageIndex.search({ datasetIds: ['d'], documentIds: ['doc'], question: 'chapter?', limit: 12 }), 'POST', '/api/v1/page-index/retrieval', { datasetIds: ['d'], documentIds: ['doc'], question: 'chapter?', limit: 12 }, undefined, undefined],
   ])('%s maps to the Business Gateway contract', async (_label, invoke, method, url, body, idempotencyKey, ifMatch) => {
     const client = new RagFlowBusinessClient({ baseURL, accessToken: 'business-token' })
     await invoke(client)

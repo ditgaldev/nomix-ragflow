@@ -217,6 +217,6 @@ def build_openapi() -> dict:
 def _success_status(operation: str) -> str:
     if operation.endswith(".create") or operation in {"datasets.create", "documents.upload", "memoryMessages.batchCreate"}:
         return "201"
-    if operation in {"documents.startParse", "documents.cancelParse"}:
+    if operation in {"documents.startParse", "documents.cancelParse", "pageIndex.build"}:
         return "202"
     return "200"

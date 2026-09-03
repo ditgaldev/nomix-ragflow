@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,7 @@ EXPECTED_ACTIONS = {
     "document:update",
     "document:delete",
     "document:parse",
+    "compilation:write",
     "chunk:read",
     "chunk:create",
     "chunk:update",
@@ -51,6 +53,7 @@ EXPECTED_ACTIONS = {
 EXPECTED_TOOLS = {
     "ragflow_discover",
     "ragflow_retrieval",
+    "ragflow_page_index",
     "ragflow_manage_datasets",
     "ragflow_manage_documents",
     "ragflow_transfer_documents",
@@ -116,6 +119,13 @@ def test_openapi_is_derived_from_manifest(gateway_modules):
     assert "multipart/form-data" in upload["requestBody"]["content"]
     start_parse = openapi["paths"]["/api/v1/datasets/{datasetId}/documents:parse"]["post"]
     assert "202" in start_parse["responses"]
+    page_index_build = openapi["paths"]["/api/v1/datasets/{datasetId}/documents:build-page-index"]["post"]
+    assert "202" in page_index_build["responses"]
+    assert page_index_build["x-nomix-required-action"] == "compilation:write"
+    page_index_search = openapi["paths"]["/api/v1/page-index/retrieval"]["post"]
+    page_index_search_schema = page_index_search["requestBody"]["content"]["application/json"]["schema"]
+    assert page_index_search_schema["properties"]["datasetIds"]["maxItems"] == 20
+    assert page_index_search_schema["properties"]["documentIds"]["maxItems"] == 20
 
     retrieval = openapi["paths"]["/api/v1/retrieval"]["post"]
     assert all(parameter["name"] != "Idempotency-Key" for parameter in retrieval.get("parameters", []))
@@ -232,6 +242,16 @@ def test_every_operation_has_a_scope_rule_and_nested_resources_require_parent_re
     assert operations["chatSessions.invoke"].required_actions >= {"session:invoke", "session:read", "chat:read", "knowledge:retrieve"}
     assert operations["agentSessions.invoke"].required_actions >= {"session:invoke", "session:read", "agent:read", "knowledge:retrieve"}
     assert operations["memoryMessages.search"].required_actions >= {"memory-message:read", "memory:read"}
+    assert operations["pageIndex.get"].required_actions >= {"document:read", "dataset:read"}
+    assert operations["pageIndex.status"].required_actions >= {"document:read", "dataset:read"}
+    assert operations["pageIndex.build"].required_actions >= {
+        "compilation:write",
+        "dataset:read",
+        "document:read",
+        "document:update",
+        "document:parse",
+    }
+    assert operations["pageIndex.search"].required_actions >= {"knowledge:retrieve", "document:read", "dataset:read"}
 
 
 @pytest.mark.p1
@@ -279,6 +299,37 @@ def test_dedicated_proxy_exposes_only_business_plane():
     assert "Verify Business Gateway Python 3.13 boundary" in ci
     assert "pytest -q test/unit_test/api/apps/business_gateway" in ci
     assert "ruff format --check api/apps/business_gateway" in ci
+
+
+@pytest.mark.p1
+def test_gateway_schema_and_nomix_release_docs_cannot_drift_from_their_owners():
+    root = Path(__file__).resolve().parents[5]
+    guide = (root / "docs" / "develop" / "business_gateway_integration.md").read_text(encoding="utf-8")
+    models = (root / "api" / "apps" / "business_gateway" / "models.py").read_text(encoding="utf-8")
+    table_names = set(re.findall(r'db_table = "(business_gateway_[^"]+)"', models))
+
+    assert table_names
+    assert all(f"- `{table_name}`" in guide for table_name in table_names)
+
+    workflow = (root / ".github" / "workflows" / "release-nomix-plugin.yml").read_text(encoding="utf-8")
+    branch_only_pack = "if: github.event_name == 'push' && github.ref == 'refs/heads/npm-nomix-ragflow' && matrix.os == 'ubuntu-latest'"
+    pack_step = workflow.split("- name: Pack and audit", 1)[1].split("shell:", 1)[0]
+    assert branch_only_pack in pack_step
+    assert "Verify release tag points to this commit" in workflow
+    assert 'tag="nomix-v$version"' in workflow
+    assert 'git rev-parse "$tag^{commit}"' in workflow
+    assert "if: github.event_name == 'push' && github.ref == 'refs/heads/npm-nomix-ragflow'" in workflow.split("publish:", 1)[1]
+
+    readme = (root / "integrations" / "nomix-harness" / "README.md").read_text(encoding="utf-8")
+    readme_zh = (root / "integrations" / "nomix-harness" / "README.zh.md").read_text(encoding="utf-8")
+    for release_doc in (readme, readme_zh):
+        assert "nomix-v<version>" in release_doc
+        assert "npm-nomix-ragflow" in release_doc
+        assert "ragflow_page_index" in release_doc
+        assert "pageIndex.search" in release_doc
+
+    assert "page-index/retrieval" in guide
+    assert "fallbackUsed=false" in guide
 
 
 @pytest.mark.p1

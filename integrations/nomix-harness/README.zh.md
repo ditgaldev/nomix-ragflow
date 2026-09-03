@@ -34,8 +34,23 @@ const datasets = await ragflow.datasets.list({ limit: 20 })
 const retrieval = await ragflow.retrieval.search({
   question: '最新版本有哪些变化？',
 })
+const uploaded = await ragflow.documents.upload('dataset-id', [{
+  displayName: 'handbook.pdf',
+  body: new Blob([documentBytes], { type: 'application/pdf' }),
+}], { idempotencyKey: 'upload-handbook' })
+const documentIds = uploaded.map(document => document.id)
+await ragflow.pageIndex.build('dataset-id', { documentIds }, { idempotencyKey: 'page-index-handbook' })
+// 后续重复查询，直到 state 为 ready、failed 或 cancelled；失败时结合 phase/errorCode 处理。
+const pageIndexStatus = await ragflow.pageIndex.status('dataset-id', documentIds[0])
+const pageIndex = await ragflow.pageIndex.get('dataset-id', documentIds[0])
+const routed = await ragflow.pageIndex.search({
+  datasetIds: ['dataset-id'],
+  documentIds,
+  question: '部署流程在哪一章？',
+})
 console.log(datasets.data, datasets.meta.nextCursor)
 console.log(retrieval.data.chunks, retrieval.meta.nextCursor)
+console.log(pageIndexStatus, pageIndex.templates, routed.data.navigation, routed.data.chunks)
 ```
 
 所有请求支持 `AbortSignal`；要求幂等的写操作还必须提供 `idempotencyKey`。更新和单资源
@@ -91,8 +106,8 @@ Consumer 安装在选中的 Agent 作用域，根 Context 不注册 RAGFlow 工�
 分类，不参与身份、actions、workspace 或数据范围判断。因此 REST 和 Agent 始终进入
 同一认证与授权路径。
 
-十个工具包含 `ragflow_discover`，并覆盖检索、数据集、文档、传输、chunk、聊天、
-会话、Agent 和 Memory。discover 只返回脱敏后的授权摘要（可用性、认证形态、action
+十一个工具包含 `ragflow_discover`，并覆盖检索、PageIndex、数据集、文档、传输、chunk、
+聊天、会话、Agent 和 Memory。discover 只返回脱敏后的授权摘要（可用性、认证形态、action
 数量、scope 模式与数量），不会暴露 subject、workspace ID、permissionRef、action
 名称或原始 scope ID。所有 Agent 写操作都必须携带由调用方稳定生成的业务
 `operationId`，并经过一次性 pre-execute 人工审批。同一不确定业务意图即使被 Harness
@@ -103,6 +118,23 @@ token 的 action 和数据范围。读操作可并行，写操作独占调度。
 `status`、`summary`、`data`、`nextActions`、`artifacts`：小型 JSON 转为带类型的
 JSON Pointer entries，大结果写入当前 Agent/session spill，只向模型暴露 artifact
 reference。
+
+RAGFlow 原生的检索期目录增强继续通过 `ragflow_retrieval` 的 `tocEnhance: true` 使用：它先
+执行普通 chunk 检索，再补充目录上下文。独立的 `ragflow_page_index` 工具面向知识编译产生的
+PageIndex artifact，覆盖上传后的构建、状态检查、显式章节树读取和章节优先检索闭环。完整的
+上传到构建流程需要上传与读取权限；`build` 自身要求 `compilation:write`、`dataset:read`、
+`document:read`、`document:update` 和 `document:parse`。先用
+`ragflow_transfer_documents.upload` 上传并取得文档 ID，再调用带 `operationId` 的 `build`；
+它会复用现有的单 PageIndex 文件级编译组；不存在时才从 RAGFlow 内置 `page_index` 模板
+创建标准编译组，并在保留已有编译组的
+前提下绑定文档并启动解析。`build` 是需审批、需幂等的写操作。随后用只读 `status` 检查
+解析状态，直到 `state=ready`（此时 `pageIndexAvailable=true`），或进入 `failed/cancelled`
+终态。状态直接映射 RAGFlow 原生的文档运行/进度字段与 PageIndex 编译产物；`phase`、
+`errorCode` 和 `errorMessage` 只做有界解释，不引入第二套 worker 状态。`get` 返回文档的全部
+PageIndex 模板章节树；
+`search` 必须显式传入 1–20 个 `datasetIds` 和 1–20 个 `documentIds`，优先以精确匹配和
+BM25 定位节点，未命中时再使用文档 embedding 模型，随后补全父级路径并返回关联的
+源 chunk。没有 PageIndex 产物或没有节点命中时返回空结果，不会静默退回普通检索。
 
 Agent operation 绑定和“所有写操作审批”均从 canonical capability manifest 派生。
 Harness 元数据还描述 Agent/Provider 选择、凭据解析、discover 脱敏、幂等归属、超时
@@ -149,5 +181,19 @@ Provider 时，无需改变 Gateway Client 或工具契约。
 
 服务端部署、权限、action、scope、审计和网络边界详见 RAGFlow 工程中的 Business
 Gateway 落地文档。
+
+## 发布
+
+发布严格分为两个阶段：
+
+1. 先推送开发分支和 `nomix-v<version>` 标签。标签工作流会在全部支持的平台上使用 lockfile
+   运行 Gateway 契约检查、类型检查、lint、测试和构建，但不会生成 npm 包，也不会发布。
+2. 标签检查全部通过后，再把同一个已验证 commit 推送到 `npm-nomix-ragflow` 分支。
+   该分支工作流才会生成并审计 tarball，在独立 consumer 和 Harness profile 中验证安装，
+   然后把同一个 artifact 带 provenance 发布到 npm。
+
+标签和 `npm-nomix-ragflow` 分支必须指向同一个 commit。发布前需要创建 GitHub
+Environment `npm-publish`，授予 `@nomix-ai` 发布权限，并配置具有 publish 与绕过 2FA
+权限的细粒度 `NPM_TOKEN`。标签检查未全部通过前，不得推送发布分支。
 
 许可证：Apache-2.0。
