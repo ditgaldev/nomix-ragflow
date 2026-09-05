@@ -9,7 +9,8 @@ import { applyKnowledgeConsumer } from '../packages/dsh-bundle-ragflow-knowledge
 describe('package entry points', () => {
   it('exports knowledge manifests at root while the plugin uses the knowledge runtime', () => {
     expect(root.knowledgeGatewayCapabilityManifest.service).toBe('knowledge-gateway')
-    expect(root).not.toHaveProperty('RagFlowBusinessClient')
+    expect(root.RagFlowBusinessClient).toBeTypeOf('function')
+    expect(root.RagFlowApiError).toBeTypeOf('function')
     expect(plugin).not.toHaveProperty('RagFlowBusinessClient')
     expect(plugin.name).toBe('nomix-ragflow')
     expect(Service).toBe(KnowledgeRuntime)

@@ -1,15 +1,15 @@
 # 业务 Knowledge Gateway 实现与接入指南
 
-适用于 `@nomix-ai/nomix-ragflow` **1.1.1**、Nomix Harness **0.2.9**，HTTP 契约版本为 **v1**。1.1.1 移除额外服务端适配层和旧客户端出口，调用方须先完成原生 API 适配。本文供任何业务系统实施自己的 Gateway，不绑定客户、租户命名、角色体系、数据库或 Web 框架。
+适用于当前源码的业务 Gateway 契约和 Nomix Harness **0.2.9**，HTTP 契约版本为 **v1**，与已发布 **1.1.1** 的插件契约一致。1.1.2 恢复原生服务端 SDK，安装 1.1.1 不会获得该恢复。本文供任何业务系统实施自己的 Gateway，不绑定客户、租户命名、角色体系、数据库或 Web 框架。
 
-本文说明业务端必须实现的行为，不表示安装 npm 包后已获得 Gateway 服务、数据库迁移、Worker 或权限系统。插件提供的是 Harness 工具及 Gateway 调用端；真实业务端仍须完成文末验收。
+本文说明业务端必须实现的行为，不表示安装 npm 包后已获得 Gateway 服务、数据库迁移、Worker 或权限系统。Agent 插件提供 Harness 工具及 Gateway 调用端，独立服务端 SDK 提供原生 RAGFlow 调用；真实业务端仍须完成文末验收。
 
 ## 1. 从发布包取得唯一契约
 
-业务系统完成适配后更新并锁定依赖：
+业务系统使用恢复后的服务端 SDK 和 Agent 插件时，锁定 1.1.2：
 
 ```bash
-npm install --save-exact @nomix-ai/nomix-ragflow@1.1.1
+npm install --save-exact @nomix-ai/nomix-ragflow@1.1.2
 ```
 
 接入依据按以下顺序使用，不从对话记录或其他项目复制一份独立接口定义：
@@ -47,7 +47,7 @@ const openapi = JSON.parse(readFileSync(
 Harness Agent → knowledge_* 工具 → 通用插件 → 业务 Knowledge Gateway
                                                │ 权限、版本、操作、引用、检索编排
                                                ↓
-                                      服务端 Provider Adapter
+                               服务端 Provider Adapter + SDK
                                                ↓
                                   原生 RAGFlow API
                                                ↓
@@ -60,23 +60,26 @@ Harness Agent → knowledge_* 工具 → 通用插件 → 业务 Knowledge Gatew
 | 通用插件 | 20 个业务工具、逐次身份解析、关闭式输入输出、HTTP 调用、安全错误、UTF-8 JSON spill | 本地文件上传、二进制传输、客户角色、权限缓存、数据库和 Worker |
 | 业务 Knowledge Gateway | 双身份认证、最终授权、文件资源校验、业务 ID 映射、版本生命周期、幂等任务、审计、引用再授权、检索编排 | 改写 Harness 循环或 RAGFlow 解析/检索算法 |
 | 服务端 Provider Adapter | 把授权后的业务命令映射到 RAGFlow 能力，把 Provider 状态/结果投影为业务 DTO | 向模型返回 Provider 地址、Key、模型/Pipeline 或底层资源标识 |
+| 原生服务端 SDK | 原生路由、API Key、JSON envelope、multipart、下载流、超时取消 | 业务 ACL、幂等事务、Harness 工具注册或多余 Gateway 服务 |
 | RAGFlow | 原有解析、索引、PageIndex、检索和重排执行 | 业务系统的角色体系、知识发布审批和业务文档 ID 定义 |
 
-业务系统的 Provider Adapter 直接调用原生 RAGFlow API，把 API Key 留在服务端。不能把 Harness 服务令牌和用户断言当作 RAGFlow 凭据。Adapter 是业务服务端代码，不是另一个 Gateway 服务；本插件不发布 RAGFlow HTTP 客户端。原生 API 的路径、DTO、错误和分页必须转换成本文业务契约，不能原样转发给 Agent。
+业务系统的 Provider Adapter 通过 `RagFlowBusinessClient` 调用原生 RAGFlow API，把 API Key 留在服务端。不能把 Harness 服务令牌和用户断言当作 RAGFlow 凭据。Adapter 是业务服务端代码，不是另一个 Gateway 服务；SDK 配置和调用见 [服务端 SDK 指南](SERVER-SDK.md)。原生 API 的路径、DTO、错误和分页必须转换成本文业务契约，不能原样转发给 Agent。
 
-本次移除了仓库附加的服务端 Gateway 及其 `./client`、`./errors`、`./types` 出口。已部署旧版本的调用方必须先迁移到原生 API，再停用旧入口；已有审计、操作和幂等数据库记录不自动删除。旧的专用代理端口不能直接替换成开放的原生 API 入口，原生服务仅供可信业务后端访问，并保持 RAGFlow 自身鉴权。
+仓库附加的服务端 Gateway 保持删除；1.1.2 恢复 `./client`、`./errors`、`./types`，改为原生 API SDK，而非旧 Gateway 客户端。已有调用方须迁移 DTO、分页及任务语义；审计、操作和幂等数据库记录不自动删除。旧的专用代理端口不能直接替换成开放的原生 API 入口，原生服务仅供可信业务后端访问，并保持 RAGFlow 自身鉴权。
 
 原生能力对照（不是一对一 DTO 替换）：
 
 | 能力 | 当前仓库原生入口 |
 |---|---|
 | 上传、文档配置、列表、删除 | `api/apps/restful_apis/document_api.py` 的 datasets/documents 接口 |
-| 启动解析、停止任务 | 同文件的 documents/parse、documents/stop 接口 |
+| 启动解析、停止任务 | 同文件的 `POST /api/v1/datasets/{dataset_id}/documents/parse`、`POST /api/v1/datasets/{dataset_id}/documents/stop` |
 | PageIndex 编译配置 | 文档 parser_config 的 compilation_template_group_id；使用已有编译模板组能力 |
-| 文档结构和 PageIndex 产物 | `api/apps/restful_apis/chunk_api.py` 的 documents/{document_id}/structure/graph 接口 |
-| 常规检索 | `api/apps/restful_apis/dataset_api.py` 的 retrieval 接口 |
+| 文档结构和 PageIndex 产物 | `api/apps/restful_apis/chunk_api.py` 的 `GET /api/v1/datasets/{dataset_id}/documents/{document_id}/structure/graph` |
+| 常规检索 | `api/apps/restful_apis/chunk_api.py` 的 `POST /api/v1/retrieval` |
 
 结构产物接口不等于旧的 PageIndex search 响应。业务 Adapter 需按原生产物语义实现章节定位、正文关联和业务引用，并独立验收；不能声称仅改 URL 就完成迁移。原生模板组配置也须按部署版本及其鉴权方式接入，不修改 RAGFlow 算法。
+
+当前原生 `POST /api/v1/retrieval` 默认 `include_knowledge_compilation=true`，即不排除编译产物；`toc_enhance` 默认 false，启用后才调用已有目录增强逻辑。这不等于独立执行了 PageIndex 树检索。上述参数由业务 Adapter 的受控配置决定，插件不发送这些底层参数，也不自动选择检索路径。结构接口返回按模板分组的 `templates/entities/relations`，不是插件的 `hits/citationId`。
 
 ## 3. 身份、权限和 Harness 接线
 
@@ -112,6 +115,8 @@ Harness Agent → knowledge_* 工具 → 通用插件 → 业务 Knowledge Gatew
 
 Harness `ask` 是工具执行前的人工确认，不等于业务授权或发布审核。当前协议不携带 Harness 审批证明；Gateway 不能据工具名称推断“已审批”。业务若要求发布审核，应在自己的可信流程中保存、校验审核状态，再允许版本激活；不向本包请求体追加审批字段。`allow` 也不意味着跳过 Gateway 授权。
 
+表中的 `allow` 表示插件不额外要求人工确认，不覆盖 Harness 其他策略返回的 ask/deny；`ask` 只把下游 allow 提升为 ask，保留已有 ask/deny。下载虽然属于 read 工具组并允许并发，但会签发链接，仍要求 ask，且不自动重试、不发送幂等键。
+
 ## 4. Gateway 必须实现的 20 个接口
 
 下表路径均相对于 **`/internal/v1/knowledge`**；冒号动作是路径的一部分。所有接口返回 JSON，成功状态按契约返回，删除也不能返回空的 204。完整请求字段、必填项和响应 Schema 见 [OpenAPI](knowledge-gateway.openapi.json)。
@@ -143,11 +148,12 @@ Harness `ask` 是工具执行前的人工确认，不等于业务授权或发布
 
 关键字段边界：
 
+- Harness 工具调用参数统一是 `{ "input": { ...业务字段 } }`。例如 `knowledge_document_get` 使用 `{ "input": { "documentId": "document-1" } }`；插件随后发送 `GET /documents/document-1`，不带 JSON body。`input` 是工具包装，不是 Gateway HTTP body 字段。
 - 每次变更只处理一个资源。查询中的 ID 数组不代表支持批量写；没有批量 `items`、旧 `ragflow_*` 工具或六个聚合 action 工具。
 - 工具输入 `knowledgeSpaceId` 由插件放入 HTTP `{spaceId}`；上传 HTTP body 是 `fileResourceId/documentName/metadata?`，不重复放入空间 ID，也不发送二进制。
 - 替换传 `fileResourceId/expectedVersion/reason?`；重建不接收新文件或 metadata。文档更新用 `name`，不是上传用的 `documentName`。
 - 文档变更 JSON 中的 `expectedVersion` 是最近详情 `lockVersion` 或摘要 `version`，允许 0；空间锁版本从 1 起。不是 `If-Match`，也不是技术版本号 `versionNo/versionNumber`。冲突后重新读取，不能自动递增再试。
-- 空间创建的 profile 固定为 `enterprise-long-document`，由 Gateway 映射为服务端配置；安全域 code 必须验证业务归属。空间更新仅名称、描述、expectedVersion；删除需要 expectedVersion 和 reason，非空或仍有未完成操作时拒绝，不提供 cascade/force。
+- 空间创建的 profile 固定为 `enterprise-long-document`，由 Gateway 映射为服务端配置；安全域 code 必须验证业务归属。空间更新/删除工具都需要 knowledgeSpaceId，由插件放入路径。更新 body 为名称、描述、expectedVersion，名称与描述至少提供一个；删除 body 需要 expectedVersion 和 reason，非空或仍有未完成操作时拒绝，不提供 cascade/force。
 - 元数据只允许 category/tags/versionLabel/productCode，NFC 后 trim、区分大小写、序列化最多 4096 UTF-8 bytes。PATCH 省略不变、字符串 null 清除、tags=[] 清空；响应四字段齐全，缺失字符串为 null、标签为 []。过滤规则与字段上限见 [README](../README.zh.md#正式文档详情分页与元数据) 和 OpenAPI。
 
 ## 5. HTTP 返回不能只包一层 data
@@ -171,7 +177,7 @@ Harness `ask` 是工具执行前的人工确认，不等于业务授权或发布
 
 ### 列表：授权过滤后再计数、分页
 
-空间/文档列表只接受 page（默认 1）、pageSize（默认 20，1–100），不使用 cursor/limit。HTTP data 为 `{items}`，分页只在 meta.pagination；插件再投影为工具 `{items,pagination}`，Gateway 不能预先返回这个工具投影。
+空间/文档列表的分页参数只接受 page（默认 1）、pageSize（默认 20，1–100），不使用 cursor/limit；文档列表还必须通过路径指定空间。HTTP data 为 `{items}`，分页只在 meta.pagination；知识服务再投影为 `{items,pagination}`，位于工具内联观察的 `data.result` 或完整 spill JSON 中。Gateway 不能预先返回这个服务投影或工具观察包装。
 
 <!-- schema: KnowledgeDocumentListResponse -->
 ```json
@@ -206,7 +212,7 @@ Harness `ask` 是工具执行前的人工确认，不等于业务授权或发布
 
 通用错误为 `KNOWLEDGE_UNAUTHENTICATED/FORBIDDEN/NOT_FOUND/CONFLICT/OPERATION_PENDING/PROVIDER_UNAVAILABLE/INVALID_INPUT`（每项均带 `KNOWLEDGE_` 前缀）。保留元数据专用错误；非空空间、未完成操作、不可取消/重试等业务原因使用契约约定的安全码。身份错误通常 401、Action 拒绝 403、不可见资源 404、冲突 409、输入非法 400/422、Provider 临时故障 503。HTTP 状态与 meta.success 必须一致。
 
-插件不会把远端 message、fieldErrors、堆栈或内部 URL 原样传给模型。非法 JSON、裸 DTO、旧封装、额外 Provider 字段、资源 ID 错配会触发不可自动重试的 `KNOWLEDGE_GATEWAY_PROTOCOL_ERROR`。业务端同样应脱敏自己的日志和响应，而不是依赖插件替它清理任意正文中的秘密。
+对于非 2xx HTTP 错误，插件根据 `meta.error.code` 和 HTTP 状态生成固定业务说明，不转发 `meta.error.message/fieldErrors`。成功 DTO 中的候选版本 `error.message` 等业务文本仍可能进入工具结果和摘要，必须由 Gateway 提供安全说明；不能把 Provider 异常填入这些字段。非法 JSON、裸 DTO、旧封装、额外 Provider 字段、资源 ID 错配会触发不可自动重试的 `KNOWLEDGE_GATEWAY_PROTOCOL_ERROR`。业务端同样应脱敏自己的日志和响应，而不是依赖插件替它清理任意正文中的秘密。
 
 ## 6. 写入、版本发布与 Worker
 
@@ -278,7 +284,7 @@ Gateway 返回有界完整 JSON，不自行返回 Harness artifact。插件超�
 
 ### 实施顺序
 
-1. 发布方按现有流程推送源码与 `nomix-v1.1.1` 标签；标签 CI 只验证/构建。通过后推送同一提交到 `npm-nomix-ragflow`，由工作流检查标签一致性、打包审计、发布已验证制品，不覆盖旧标签或 npm 版本。
+1. 发布方按现有流程推送源码与对应版本的 `nomix-v<version>` 标签；标签 CI 只验证/构建。通过后推送同一提交到 `npm-nomix-ragflow`，由工作流检查标签一致性、打包审计、发布已验证制品。`1.1.1` 已发布，后续修改必须使用新版本和新标签，不能覆盖该标签或 npm 制品；本地文档修改不会更新已发布包内的文档。
 2. 业务系统锁定已发布包，直接读取包内 OpenAPI；实现身份/异常包装、20 个路由及 DTO 投影。不能只重命名路径和请求头而保留原有响应格式。
 3. 完成权限、文件资源、持久化 operation/幂等、双版本事务、Worker 与 Provider Adapter；检索融合、引用和下载一并适配。
 4. 先在测试环境配置 Gateway Provider 和 Agent toolset，绑定真实测试 Session，完成下面的端到端验收，再切生产流量。仅更新 npm 依赖不会自动升级业务 Gateway。

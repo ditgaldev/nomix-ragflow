@@ -11,10 +11,12 @@ const required = [
   'package/README.zh.md',
   'package/contracts/ALIGNMENT.md',
   'package/contracts/GATEWAY-INTEGRATION.md',
+  'package/contracts/SERVER-SDK.md',
   'package/packages/dsh-bundle-ragflow-knowledge/cordis.patch.yml',
   'package/contracts/knowledge-gateway.openapi.json',
   'package/lib/src/index.js',
   'package/lib/src/index.d.ts',
+  ...['client', 'errors', 'types', 'native-transport'].flatMap(name => [`package/lib/src/${name}.js`, `package/lib/src/${name}.d.ts`]),
   'package/lib/packages/dsh-bundle-ragflow-knowledge/plugin.js',
   'package/lib/packages/dsh-bundle-ragflow-knowledge/plugin.d.ts',
   'package/lib/packages/dsh-knowledge-gateway/provider.js',
@@ -28,14 +30,14 @@ const required = [
 for (const entry of required) if (!entries.includes(entry)) throw new Error(`tarball missing ${entry}`)
 for (const entry of entries) {
   if (/(?:\.ts$)/u.test(entry) && !entry.endsWith('.d.ts')) throw new Error(`source included in tarball: ${entry}`)
-  if (/^package\/lib\/src\/(?:client|errors|types|openapi\.generated|capabilities\.generated)\./u.test(entry)) throw new Error(`removed RAGFlow Gateway artifact in tarball: ${entry}`)
+  if (/^package\/lib\/src\/(?:openapi\.generated|capabilities\.generated)\./u.test(entry)) throw new Error(`removed RAGFlow Gateway artifact in tarball: ${entry}`)
   if (/\/(tests|node_modules)\//.test(entry) || /(^|\/)\.env($|\.)/.test(entry)) throw new Error(`forbidden tarball entry: ${entry}`)
 }
 const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 if (manifest.name !== '@nomix-ai/nomix-ragflow' || manifest.private === true) throw new Error('unexpected package identity')
 const harnessPackage = '@nomix-ai/nomix-harness'
 if (manifest.dependencies?.[harnessPackage] !== '0.2.9') throw new Error('Harness must be pinned to exactly 0.2.9')
-const forbiddenExports = ['./client', './errors', './types', './knowledge-client', './knowledge-errors', './knowledge-types', './provider', './consumer', './policy', './tools']
+const forbiddenExports = ['./native-transport', './knowledge-client', './knowledge-errors', './knowledge-types', './provider', './consumer', './policy', './tools']
 for (const path of forbiddenExports) if (manifest.exports?.[path]) throw new Error(`internal plugin layer must not be exported: ${path}`)
 for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
   for (const packageName of Object.keys(manifest[field] ?? {})) {

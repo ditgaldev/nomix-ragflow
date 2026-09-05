@@ -15,7 +15,7 @@
 | 首次上传/失败 | `activeVersion` 可空；operation 可读重试状态 | `plan-contract.spec.ts` |
 | 身份与传输 | 每次动态解析；拒绝非法头和重定向；共享超时预算 | 真实本地 HTTP `knowledge-transport.spec.ts` |
 | 身份释放 | 自动过期、刷新保护、Cordis fiber 卸载清理 | `business-identity.spec.ts` |
-| Harness 审批与隔离 | 选中 Agent 范围安装；拒绝或无审批服务不执行 | `knowledge-harness.spec.ts`，使用真实 0.2.9 运行时 |
+| Harness 审批与隔离 | 选中 Agent 范围安装；需要 ask 的调用在拒绝或无审批服务时不执行 | `knowledge-harness.spec.ts`，使用真实 0.2.9 运行时 |
 | 无证据不编造 | Agent 系统提示词及无结果观察说明 | `knowledge-harness.spec.ts` |
 | OpenAPI | 标准 HTTP 参数/请求体；原始 JSON 随 npm 包导出 | 独立 Ajv 2020-12 校验、生成漂移检查、tarball 检查 |
 | 八个源码包 | 实际实现按八个私有 npm workspace 迁移；根工程统一发布 | 每包 typecheck、`workspace-boundaries.spec.ts`、干净 tarball 消费者 |
@@ -58,4 +58,36 @@
 
 - Gateway 指南的 20 行接口表、成功状态与审批策略，以及完整 JSON 响应示例，由 `knowledge-openapi.spec.ts` 对照唯一 OpenAPI 校验。
 - npm tarball 审计要求包含该指南、OpenAPI、中英文 README 和本文；业务项目可直接从锁定版本的发布包取得接入依据。
-- 业务 Knowledge Gateway 是唯一业务入口；Provider Adapter 直接连接原生 RAGFlow API。本包不再包含额外服务端 Gateway、其客户端或部署配置。
+- 业务 Knowledge Gateway 是唯一业务入口；Provider Adapter 使用独立的 `RagFlowBusinessClient` 连接原生 RAGFlow API。本包恢复服务端 SDK，不恢复额外服务端 Gateway、旧 Gateway 协议或部署配置；Agent workspace 不导入 SDK。
+
+## 文档核对依据
+
+本表覆盖中英文 README、Gateway 接入指南和本文涉及的插件行为；源码路径相对于 `integrations/nomix-harness`。测试用于验证相应行为，不代表其余自然语言说明自动获得验证。
+
+| 核对范围 | 实现依据 | 回归依据 |
+|---|---|---|
+| 发布入口、版本、依赖、四行配置 | `package.json`、`src/manifest.ts`、`packages/dsh-bundle-ragflow-knowledge/cordis.patch.yml` | `exports.spec.ts`、`workspace-boundaries.spec.ts`、`verify-consumer.mjs`、`verify-profile.mjs` |
+| 原生服务端 SDK、路由映射及传输 | `src/client.ts`、`src/native-transport.ts`、`src/types.ts`；仓库 `api/apps/restful_apis/*_api.py` | `native-client.spec.ts`、打包入口与消费者检查；未执行真实 RAGFlow 联调，不证明 Provider 部署能力或业务事务 |
+| Provider/Consumer 配置、preset 选择、生命周期 | `packages/dsh-knowledge-gateway/provider.ts`、`packages/dsh-bundle-ragflow-knowledge/consumer.ts`、`packages/dsh-knowledge/service.ts` | `knowledge-provider.spec.ts`、`knowledge-lifecycle.spec.ts` |
+| Session 绑定、逐次凭据、关联头、幂等 | `packages/dsh-business-identity/business-identity.ts`、`packages/dsh-knowledge/execution-identity.ts`、Provider/Consumer 与 HTTP client | `business-identity.spec.ts`、`knowledge-transport.spec.ts`、`knowledge-lifecycle.spec.ts` |
+| 20 个工具、输入映射、审批和并发 | 三个 `packages/dsh-tool-knowledge-*/tools.ts`、`packages/dsh-knowledge/tool.ts`、`harness-contract.ts`、`packages/dsh-knowledge-policy/policy.ts` | `knowledge-tools.spec.ts`、`knowledge-harness.spec.ts`、`knowledge-contracts.spec.ts` |
+| HTTP 路由、DTO、元数据、版本投影、分页 | OpenAPI、`packages/dsh-knowledge/knowledge-schema.ts`、`metadata.ts`、`packages/dsh-knowledge-gateway/knowledge-client.ts` | `knowledge-openapi.spec.ts`、`knowledge-revisions.spec.ts`、`plan-contract.spec.ts`、`knowledge-client.spec.ts` |
+| 重试、取消、错误转换和大小限制 | HTTP client、`packages/dsh-knowledge/knowledge-errors.ts`、Consumer | `knowledge-transport.spec.ts`、`knowledge-lifecycle.spec.ts` |
+| 工具观察、完整 JSON spill、证据规则 | `packages/dsh-knowledge/knowledge-observation.ts`、Consumer、policy | `knowledge-harness.spec.ts`、`knowledge-lifecycle.spec.ts` |
+| 发布顺序、包内容与真实 Harness 安装 | 仓库 `.github/workflows/release-nomix-plugin.yml`、`scripts/verify-package.mjs`、`scripts/audit-tarball.mjs` | `npm run verify`；发布分支检查标签及同一制品 |
+
+原生 RAGFlow 入口另行核对 `api/apps/__init__.py` 的路由前缀、`document_api.py` 的上传/配置/解析/停止路由和 `chunk_api.py` 的 retrieval/structure 路由；这些文件未修改。业务 Gateway 的数据库、Worker、ACL 和检索编排不是本仓库插件代码，接入指南描述的是部署方必须实现并验收的要求。
+
+## 运行时校验边界
+
+本节的 HTTP client 指 `KnowledgeGatewayClient`，不是恢复的 `RagFlowBusinessClient`。原生 SDK 使用不同的凭据、envelope、错误和预算，不自动重试；其上传是 Blob/FormData，下载才返回流。详见 [SDK 指南](SERVER-SDK.md)。
+
+- HTTP client 区分 2xx 成功与非 2xx 错误、拒绝重定向，并按对应 DTO 校验正文；它不逐个强制核对 200/201/202，也不验证响应 Content-Type。接入方仍须严格遵守 OpenAPI 的具体成功状态和 JSON 协议，不能把当前客户端接受当作契约合规证明。
+- 检索结果校验全局 8 条、单文档 4 条和正文长度，并在返回 query 时核对其与请求一致；不自行裁剪到请求 limit，也不查验返回文档是否属于请求范围或最新 ACL。范围、limit、有效版本、元数据匹配和去重必须由 Gateway 落实。
+- 下载校验业务 documentId、DTO、`expiresInSeconds=60` 及 HTTPS（本地回环例外）；不访问下载地址、不核对版本数据库、不验证链接实际到期时间。签发、当前 active version 和到期兑付由 Gateway/文件服务负责。
+- 详情校验双版本结构、searchable 公式、版本槽位 ID 不同、进度与错误一致性；不执行数据库原子切换，也不验证真实 Worker 的全部状态迁移。候选保留、成功清空和重试复用是 Gateway 要求，不是插件事务。
+- 响应关联 ID 进行结构校验，但不要求 `meta.requestId` 与请求头完全相等；成功响应 meta 用于 Provider debug 关联日志。它不是完整业务审计，也不是 `traceparent` 传播或审批凭证。
+- 身份绑定仅校验非空断言与外部传入的到期时间，不验证签名或断言内部 exp；它是当前运行时的内存绑定，不是跨实例身份数据库。断言签发、校验和运行时绑定恢复由业务端负责。
+- 本地 `npm run verify` 包含各 workspace 类型检查与打包验收；标签 CI 执行根工程类型检查、契约、lint、测试和构建，不等同于执行完整 verify。Harness profile 安装使用 Harness CLI 自身的包管理流程，发布 CI 为此安装 pnpm；源码工程的锁文件和发布仍使用 npm。
+
+本次 SDK 恢复和文档修正随 `1.1.2` 发布；`1.1.1` 的既有包及标签保持不变。业务端须安装 1.1.2 并完成原生 SDK 适配与独立联调。

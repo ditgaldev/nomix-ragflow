@@ -21,14 +21,14 @@ describe('knowledge workspace ownership', () => {
     expect(workflow).toContain("if: github.event_name == 'push' && github.ref == 'refs/heads/npm-nomix-ragflow' && matrix.os == 'ubuntu-latest'")
   })
 
-  it('publishes only the Knowledge Gateway boundary, without a RAGFlow server client', async () => {
+  it('publishes the native server SDK separately from the Agent boundary', async () => {
     const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
-    for (const path of ['./client', './errors', './types']) expect(pkg.exports).not.toHaveProperty(path)
-    expect(readdirSync(resolve(root, 'src')).sort()).toEqual(['index.ts', 'manifest.ts'])
+    for (const path of ['./client', './errors', './types']) expect(pkg.exports[path]).toBeDefined()
+    expect(pkg.exports['./native-transport']).toBeUndefined()
     expect(pkg.scripts['contracts:generate']).toBe('node scripts/generate-knowledge-contract.mjs')
     expect(pkg.scripts['contracts:check']).toBe('node scripts/generate-knowledge-contract.mjs --check')
     const publicAPI = await import('../src/index.js')
-    expect(Object.keys(publicAPI).sort()).toEqual(['knowledgeGatewayCapabilityManifest', 'knowledgeHarnessCapabilityManifest'])
+    expect(Object.keys(publicAPI).sort()).toEqual(['RagFlowApiError', 'RagFlowBusinessClient', 'knowledgeGatewayCapabilityManifest', 'knowledgeHarnessCapabilityManifest'])
     expect(publicAPI.knowledgeGatewayCapabilityManifest.service).toBe('knowledge-gateway')
   })
 

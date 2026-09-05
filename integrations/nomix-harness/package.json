@@ -1,13 +1,25 @@
 {
   "name": "@nomix-ai/nomix-ragflow",
-  "version": "1.1.1",
-  "description": "Business Knowledge Gateway plugin for Nomix Harness",
+  "version": "1.1.2",
+  "description": "Nomix Harness knowledge plugin and native RAGFlow server SDK",
   "license": "Apache-2.0",
   "type": "module",
   "sideEffects": false,
   "main": "lib/src/index.js",
   "types": "lib/src/index.d.ts",
   "exports": {
+    "./client": {
+      "types": "./lib/src/client.d.ts",
+      "default": "./lib/src/client.js"
+    },
+    "./errors": {
+      "types": "./lib/src/errors.d.ts",
+      "default": "./lib/src/errors.js"
+    },
+    "./types": {
+      "types": "./lib/src/types.d.ts",
+      "default": "./lib/src/types.js"
+    },
     ".": {
       "types": "./lib/src/index.d.ts",
       "default": "./lib/src/index.js"
@@ -42,6 +54,7 @@
   "files": [
     "contracts/ALIGNMENT.md",
     "contracts/GATEWAY-INTEGRATION.md",
+    "contracts/SERVER-SDK.md",
     "contracts/knowledge-gateway.openapi.json",
     "lib/**/*.js",
     "lib/**/*.d.ts",
