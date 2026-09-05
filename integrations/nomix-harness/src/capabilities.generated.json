@@ -12,9 +12,7 @@
       "resourceType": "authorization",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "authorization.getContext",
-      "agentTool": "ragflow_discover",
-      "agentAction": "context"
+      "clientMethod": "authorization.getContext"
     },
     {
       "operation": "retrieval.search",
@@ -25,9 +23,7 @@
       "resourceType": "knowledge",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "retrieval.search",
-      "agentTool": "ragflow_retrieval",
-      "agentAction": "search"
+      "clientMethod": "retrieval.search"
     },
     {
       "operation": "pageIndex.get",
@@ -40,9 +36,7 @@
       "resourceType": "page-index",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "pageIndex.get",
-      "agentTool": "ragflow_page_index",
-      "agentAction": "get"
+      "clientMethod": "pageIndex.get"
     },
     {
       "operation": "pageIndex.status",
@@ -55,9 +49,7 @@
       "resourceType": "page-index",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "pageIndex.status",
-      "agentTool": "ragflow_page_index",
-      "agentAction": "status"
+      "clientMethod": "pageIndex.status"
     },
     {
       "operation": "pageIndex.build",
@@ -73,9 +65,7 @@
       "resourceType": "page-index",
       "risk": "write",
       "idempotency": "required",
-      "clientMethod": "pageIndex.build",
-      "agentTool": "ragflow_page_index",
-      "agentAction": "build"
+      "clientMethod": "pageIndex.build"
     },
     {
       "operation": "pageIndex.search",
@@ -89,9 +79,7 @@
       "resourceType": "page-index",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "pageIndex.search",
-      "agentTool": "ragflow_page_index",
-      "agentAction": "search"
+      "clientMethod": "pageIndex.search"
     },
     {
       "operation": "datasets.list",
@@ -102,9 +90,7 @@
       "resourceType": "dataset",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "datasets.list",
-      "agentTool": "ragflow_manage_datasets",
-      "agentAction": "list"
+      "clientMethod": "datasets.list"
     },
     {
       "operation": "datasets.create",
@@ -115,9 +101,7 @@
       "resourceType": "dataset",
       "risk": "write",
       "idempotency": "required",
-      "clientMethod": "datasets.create",
-      "agentTool": "ragflow_manage_datasets",
-      "agentAction": "create"
+      "clientMethod": "datasets.create"
     },
     {
       "operation": "datasets.get",
@@ -128,9 +112,7 @@
       "resourceType": "dataset",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "datasets.get",
-      "agentTool": "ragflow_manage_datasets",
-      "agentAction": "get"
+      "clientMethod": "datasets.get"
     },
     {
       "operation": "datasets.update",
@@ -141,9 +123,7 @@
       "resourceType": "dataset",
       "risk": "write",
       "idempotency": "supported",
-      "clientMethod": "datasets.update",
-      "agentTool": "ragflow_manage_datasets",
-      "agentAction": "update"
+      "clientMethod": "datasets.update"
     },
     {
       "operation": "datasets.delete",
@@ -154,9 +134,7 @@
       "resourceType": "dataset",
       "risk": "destructive",
       "idempotency": "supported",
-      "clientMethod": "datasets.delete",
-      "agentTool": "ragflow_manage_datasets",
-      "agentAction": "delete"
+      "clientMethod": "datasets.delete"
     },
     {
       "operation": "datasets.batchDelete",
@@ -178,9 +156,7 @@
       "resourceType": "dataset",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "datasets.getMetadataConfig",
-      "agentTool": "ragflow_manage_documents",
-      "agentAction": "get_auto_metadata"
+      "clientMethod": "datasets.getMetadataConfig"
     },
     {
       "operation": "datasets.updateMetadataConfig",
@@ -191,9 +167,7 @@
       "resourceType": "dataset",
       "risk": "write",
       "idempotency": "supported",
-      "clientMethod": "datasets.updateMetadataConfig",
-      "agentTool": "ragflow_manage_documents",
-      "agentAction": "update_auto_metadata"
+      "clientMethod": "datasets.updateMetadataConfig"
     },
     {
       "operation": "documents.list",
@@ -206,9 +180,7 @@
       "resourceType": "document",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "documents.list",
-      "agentTool": "ragflow_manage_documents",
-      "agentAction": "list"
+      "clientMethod": "documents.list"
     },
     {
       "operation": "documents.upload",
@@ -221,9 +193,7 @@
       "resourceType": "document",
       "risk": "write",
       "idempotency": "required",
-      "clientMethod": "documents.upload",
-      "agentTool": "ragflow_transfer_documents",
-      "agentAction": "upload"
+      "clientMethod": "documents.upload"
     },
     {
       "operation": "documents.get",
@@ -249,9 +219,7 @@
       "resourceType": "document",
       "risk": "write",
       "idempotency": "supported",
-      "clientMethod": "documents.update",
-      "agentTool": "ragflow_manage_documents",
-      "agentAction": "update"
+      "clientMethod": "documents.update"
     },
     {
       "operation": "documents.delete",
@@ -264,9 +232,7 @@
       "resourceType": "document",
       "risk": "destructive",
       "idempotency": "supported",
-      "clientMethod": "documents.delete",
-      "agentTool": "ragflow_manage_documents",
-      "agentAction": "delete"
+      "clientMethod": "documents.delete"
     },
     {
       "operation": "documents.batchDelete",
@@ -292,9 +258,7 @@
       "resourceType": "document",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "documents.download",
-      "agentTool": "ragflow_transfer_documents",
-      "agentAction": "download"
+      "clientMethod": "documents.download"
     },
     {
       "operation": "documents.startParse",
@@ -307,9 +271,7 @@
       "resourceType": "document",
       "risk": "write",
       "idempotency": "required",
-      "clientMethod": "documents.startParse",
-      "agentTool": "ragflow_transfer_documents",
-      "agentAction": "start_parse"
+      "clientMethod": "documents.startParse"
     },
     {
       "operation": "documents.cancelParse",
@@ -322,9 +284,7 @@
       "resourceType": "document",
       "risk": "write",
       "idempotency": "required",
-      "clientMethod": "documents.cancelParse",
-      "agentTool": "ragflow_transfer_documents",
-      "agentAction": "cancel_parse"
+      "clientMethod": "documents.cancelParse"
     },
     {
       "operation": "chunks.list",
@@ -338,9 +298,7 @@
       "resourceType": "chunk",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "chunks.list",
-      "agentTool": "ragflow_manage_chunks",
-      "agentAction": "list"
+      "clientMethod": "chunks.list"
     },
     {
       "operation": "chunks.create",
@@ -354,9 +312,7 @@
       "resourceType": "chunk",
       "risk": "write",
       "idempotency": "required",
-      "clientMethod": "chunks.create",
-      "agentTool": "ragflow_manage_chunks",
-      "agentAction": "add"
+      "clientMethod": "chunks.create"
     },
     {
       "operation": "chunks.get",
@@ -384,9 +340,7 @@
       "resourceType": "chunk",
       "risk": "write",
       "idempotency": "supported",
-      "clientMethod": "chunks.update",
-      "agentTool": "ragflow_manage_chunks",
-      "agentAction": "update"
+      "clientMethod": "chunks.update"
     },
     {
       "operation": "chunks.delete",
@@ -400,9 +354,7 @@
       "resourceType": "chunk",
       "risk": "destructive",
       "idempotency": "supported",
-      "clientMethod": "chunks.delete",
-      "agentTool": "ragflow_manage_chunks",
-      "agentAction": "delete"
+      "clientMethod": "chunks.delete"
     },
     {
       "operation": "chunks.batchDelete",
@@ -427,9 +379,7 @@
       "resourceType": "chat",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "chats.list",
-      "agentTool": "ragflow_manage_chats",
-      "agentAction": "list"
+      "clientMethod": "chats.list"
     },
     {
       "operation": "chats.create",
@@ -440,9 +390,7 @@
       "resourceType": "chat",
       "risk": "write",
       "idempotency": "required",
-      "clientMethod": "chats.create",
-      "agentTool": "ragflow_manage_chats",
-      "agentAction": "create"
+      "clientMethod": "chats.create"
     },
     {
       "operation": "chats.get",
@@ -453,9 +401,7 @@
       "resourceType": "chat",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "chats.get",
-      "agentTool": "ragflow_manage_chats",
-      "agentAction": "get"
+      "clientMethod": "chats.get"
     },
     {
       "operation": "chats.update",
@@ -466,9 +412,7 @@
       "resourceType": "chat",
       "risk": "write",
       "idempotency": "supported",
-      "clientMethod": "chats.update",
-      "agentTool": "ragflow_manage_chats",
-      "agentAction": "update"
+      "clientMethod": "chats.update"
     },
     {
       "operation": "chats.delete",
@@ -479,9 +423,7 @@
       "resourceType": "chat",
       "risk": "destructive",
       "idempotency": "supported",
-      "clientMethod": "chats.delete",
-      "agentTool": "ragflow_manage_chats",
-      "agentAction": "delete"
+      "clientMethod": "chats.delete"
     },
     {
       "operation": "chats.batchDelete",
@@ -505,10 +447,7 @@
       "resourceType": "session",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "sessions.list",
-      "agentTool": "ragflow_manage_sessions",
-      "agentAction": "list",
-      "agentKind": "chat"
+      "clientMethod": "sessions.list"
     },
     {
       "operation": "chatSessions.create",
@@ -521,10 +460,7 @@
       "resourceType": "session",
       "risk": "write",
       "idempotency": "required",
-      "clientMethod": "sessions.create",
-      "agentTool": "ragflow_manage_sessions",
-      "agentAction": "create",
-      "agentKind": "chat"
+      "clientMethod": "sessions.create"
     },
     {
       "operation": "chatSessions.get",
@@ -550,10 +486,7 @@
       "resourceType": "session",
       "risk": "write",
       "idempotency": "supported",
-      "clientMethod": "sessions.update",
-      "agentTool": "ragflow_manage_sessions",
-      "agentAction": "update",
-      "agentKind": "chat"
+      "clientMethod": "sessions.update"
     },
     {
       "operation": "chatSessions.delete",
@@ -566,10 +499,7 @@
       "resourceType": "session",
       "risk": "destructive",
       "idempotency": "supported",
-      "clientMethod": "sessions.delete",
-      "agentTool": "ragflow_manage_sessions",
-      "agentAction": "delete",
-      "agentKind": "chat"
+      "clientMethod": "sessions.delete"
     },
     {
       "operation": "chatSessions.batchDelete",
@@ -597,10 +527,7 @@
       "resourceType": "session",
       "risk": "write",
       "idempotency": "required",
-      "clientMethod": "sessions.invoke",
-      "agentTool": "ragflow_manage_sessions",
-      "agentAction": "ask",
-      "agentKind": "chat"
+      "clientMethod": "sessions.invoke"
     },
     {
       "operation": "agents.list",
@@ -611,9 +538,7 @@
       "resourceType": "agent",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "agents.list",
-      "agentTool": "ragflow_manage_agents",
-      "agentAction": "list"
+      "clientMethod": "agents.list"
     },
     {
       "operation": "agents.create",
@@ -624,9 +549,7 @@
       "resourceType": "agent",
       "risk": "write",
       "idempotency": "required",
-      "clientMethod": "agents.create",
-      "agentTool": "ragflow_manage_agents",
-      "agentAction": "create"
+      "clientMethod": "agents.create"
     },
     {
       "operation": "agents.get",
@@ -637,9 +560,7 @@
       "resourceType": "agent",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "agents.get",
-      "agentTool": "ragflow_manage_agents",
-      "agentAction": "get"
+      "clientMethod": "agents.get"
     },
     {
       "operation": "agents.update",
@@ -650,9 +571,7 @@
       "resourceType": "agent",
       "risk": "write",
       "idempotency": "supported",
-      "clientMethod": "agents.update",
-      "agentTool": "ragflow_manage_agents",
-      "agentAction": "update"
+      "clientMethod": "agents.update"
     },
     {
       "operation": "agents.delete",
@@ -663,9 +582,7 @@
       "resourceType": "agent",
       "risk": "destructive",
       "idempotency": "supported",
-      "clientMethod": "agents.delete",
-      "agentTool": "ragflow_manage_agents",
-      "agentAction": "delete"
+      "clientMethod": "agents.delete"
     },
     {
       "operation": "agentSessions.list",
@@ -678,10 +595,7 @@
       "resourceType": "session",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "sessions.list",
-      "agentTool": "ragflow_manage_sessions",
-      "agentAction": "list",
-      "agentKind": "agent"
+      "clientMethod": "sessions.list"
     },
     {
       "operation": "agentSessions.create",
@@ -694,10 +608,7 @@
       "resourceType": "session",
       "risk": "write",
       "idempotency": "required",
-      "clientMethod": "sessions.create",
-      "agentTool": "ragflow_manage_sessions",
-      "agentAction": "create",
-      "agentKind": "agent"
+      "clientMethod": "sessions.create"
     },
     {
       "operation": "agentSessions.get",
@@ -723,10 +634,7 @@
       "resourceType": "session",
       "risk": "destructive",
       "idempotency": "supported",
-      "clientMethod": "sessions.delete",
-      "agentTool": "ragflow_manage_sessions",
-      "agentAction": "delete",
-      "agentKind": "agent"
+      "clientMethod": "sessions.delete"
     },
     {
       "operation": "agentSessions.batchDelete",
@@ -754,10 +662,7 @@
       "resourceType": "session",
       "risk": "write",
       "idempotency": "required",
-      "clientMethod": "sessions.invoke",
-      "agentTool": "ragflow_manage_sessions",
-      "agentAction": "ask",
-      "agentKind": "agent"
+      "clientMethod": "sessions.invoke"
     },
     {
       "operation": "memories.list",
@@ -768,9 +673,7 @@
       "resourceType": "memory",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "memories.list",
-      "agentTool": "ragflow_manage_memories",
-      "agentAction": "list"
+      "clientMethod": "memories.list"
     },
     {
       "operation": "memories.create",
@@ -781,9 +684,7 @@
       "resourceType": "memory",
       "risk": "write",
       "idempotency": "required",
-      "clientMethod": "memories.create",
-      "agentTool": "ragflow_manage_memories",
-      "agentAction": "create"
+      "clientMethod": "memories.create"
     },
     {
       "operation": "memories.get",
@@ -805,9 +706,7 @@
       "resourceType": "memory",
       "risk": "write",
       "idempotency": "supported",
-      "clientMethod": "memories.update",
-      "agentTool": "ragflow_manage_memories",
-      "agentAction": "update"
+      "clientMethod": "memories.update"
     },
     {
       "operation": "memories.delete",
@@ -818,9 +717,7 @@
       "resourceType": "memory",
       "risk": "destructive",
       "idempotency": "supported",
-      "clientMethod": "memories.delete",
-      "agentTool": "ragflow_manage_memories",
-      "agentAction": "delete"
+      "clientMethod": "memories.delete"
     },
     {
       "operation": "memories.getConfig",
@@ -831,9 +728,7 @@
       "resourceType": "memory",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "memories.getConfig",
-      "agentTool": "ragflow_manage_memories",
-      "agentAction": "get_config"
+      "clientMethod": "memories.getConfig"
     },
     {
       "operation": "memoryMessages.list",
@@ -846,9 +741,7 @@
       "resourceType": "memory-message",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "memoryMessages.list",
-      "agentTool": "ragflow_manage_memories",
-      "agentAction": "list_messages"
+      "clientMethod": "memoryMessages.list"
     },
     {
       "operation": "memoryMessages.create",
@@ -874,9 +767,7 @@
       "resourceType": "memory-message",
       "risk": "write",
       "idempotency": "required",
-      "clientMethod": "memoryMessages.batchCreate",
-      "agentTool": "ragflow_manage_memories",
-      "agentAction": "add_message"
+      "clientMethod": "memoryMessages.batchCreate"
     },
     {
       "operation": "memoryMessages.search",
@@ -889,9 +780,7 @@
       "resourceType": "memory-message",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "memoryMessages.search",
-      "agentTool": "ragflow_manage_memories",
-      "agentAction": "search_messages"
+      "clientMethod": "memoryMessages.search"
     },
     {
       "operation": "memoryMessages.recent",
@@ -904,9 +793,7 @@
       "resourceType": "memory-message",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "memoryMessages.recent",
-      "agentTool": "ragflow_manage_memories",
-      "agentAction": "recent_messages"
+      "clientMethod": "memoryMessages.recent"
     },
     {
       "operation": "memoryMessages.getContent",
@@ -919,9 +806,7 @@
       "resourceType": "memory-message",
       "risk": "read",
       "idempotency": "none",
-      "clientMethod": "memoryMessages.getContent",
-      "agentTool": "ragflow_manage_memories",
-      "agentAction": "get_message_content"
+      "clientMethod": "memoryMessages.getContent"
     },
     {
       "operation": "memoryMessages.update",
@@ -934,9 +819,7 @@
       "resourceType": "memory-message",
       "risk": "write",
       "idempotency": "supported",
-      "clientMethod": "memoryMessages.update",
-      "agentTool": "ragflow_manage_memories",
-      "agentAction": "update_message_status"
+      "clientMethod": "memoryMessages.update"
     },
     {
       "operation": "memoryMessages.delete",
@@ -949,9 +832,7 @@
       "resourceType": "memory-message",
       "risk": "destructive",
       "idempotency": "supported",
-      "clientMethod": "memoryMessages.delete",
-      "agentTool": "ragflow_manage_memories",
-      "agentAction": "forget_message"
+      "clientMethod": "memoryMessages.delete"
     }
   ]
 }

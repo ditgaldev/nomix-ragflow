@@ -1,0 +1,22 @@
+{
+  "name": "dsh-bundle-ragflow-knowledge",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./plugin.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@nomix-ai/nomix-harness": "0.2.9",
+    "dsh-knowledge": "file:../dsh-knowledge",
+    "dsh-business-identity": "file:../dsh-business-identity",
+    "dsh-knowledge-gateway": "file:../dsh-knowledge-gateway",
+    "dsh-tool-knowledge-read": "file:../dsh-tool-knowledge-read",
+    "dsh-tool-knowledge-write": "file:../dsh-tool-knowledge-write",
+    "dsh-tool-knowledge-admin": "file:../dsh-tool-knowledge-admin",
+    "dsh-knowledge-policy": "file:../dsh-knowledge-policy"
+  }
+}

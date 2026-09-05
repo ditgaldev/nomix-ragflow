@@ -231,7 +231,14 @@ export function isOpenApiErrorEnvelope(value: unknown): value is OpenApiErrorEnv
 }
 
 const generated = generate(openApiDocument()).replaceAll('\r\n', '\n')
-const manifestGenerated = `${JSON.stringify(JSON.parse(await readFile(manifestSourcePath, 'utf8')), null, 2)}\n`
+const rawManifest = JSON.parse(await readFile(manifestSourcePath, 'utf8'))
+// The package-level RAGFlow client retains transport capabilities, but Agent
+// bindings belong exclusively to the business Knowledge Gateway in v2.
+const clientManifest = {
+  ...rawManifest,
+  operations: rawManifest.operations.map(({ agentTool: _tool, agentAction: _action, agentKind: _kind, ...operation }) => operation),
+}
+const manifestGenerated = `${JSON.stringify(clientManifest, null, 2)}\n`
 if (check) {
   const current = await readFile(outputPath, 'utf8').catch(() => '')
   const manifestCurrent = await readFile(manifestOutputPath, 'utf8').catch(() => '')

@@ -7,28 +7,39 @@ slug: /business_gateway_integration
 
 # RAGFlow Business Gateway 标准化接入
 
-本文描述 Nomix Business Gateway Integration Standard v1 在 RAGFlow 中的落地。
-Business Gateway 是业务 REST 调用和 Agent 工具调用的唯一业务数据入口；现有 Web、
-管理端和官方 SDK 使用的原始 RAGFlow API 平面仍然存在，但必须放在管理网络中。
+本文描述 **RAGFlow 服务端 Business Gateway v1**，即 `api/apps/business_gateway/`
+及 `RagFlowBusinessClient` 对应的数据平面。它不是业务系统需要实现的 Knowledge Gateway，
+也不是当前 Harness Agent 的直接调用入口。现有 Web、管理端和官方 SDK 使用的原始 RAGFlow
+API 平面仍然存在，必须放在管理网络中。
+
+业务系统接入 `@nomix-ai/nomix-ragflow` 0.3.0，应先阅读随 npm 包发布的
+[业务 Knowledge Gateway 实现与接入指南](../../integrations/nomix-harness/contracts/GATEWAY-INTEGRATION.md)。
+本文仅供其服务端 Provider Adapter 选择本仓库 RAGFlow Business Gateway 时使用；若 Adapter
+选择原生 RAGFlow API，应使用原生 API 契约。不要把两个 Gateway 的认证、DTO、分页或版本规则混用。
 
 ## 最终调用链
 
 ```text
-业务系统 REST ───────────────┐
-                            ├─> 专用 Gateway service root /api/v1/*
-Nomix Agent 工具 -> npm Client ┘               │
-                                                ├─ Token Introspection
-                                                ├─ workspace -> tenant 映射
-                                                ├─ action 校验
-                                                ├─ tenant/ACL/scope 求交
-                                                ├─审计与幂等
-                                                └─同进程 RAGFlow 应用服务适配层
+Nomix Harness Agent -> knowledge_* 工具 -> 业务 Knowledge Gateway
+                                         /internal/v1/knowledge/*
+                                         业务授权/文档版本/操作/引用/检索编排
+                                                   │
+                                        服务端 Provider Adapter
+                                                   │ RagFlowBusinessClient
+                                                   ↓
+                                   RAGFlow Business Gateway /api/v1/*
+                                         ├─ Token Introspection
+                                         ├─ workspace -> tenant 映射
+                                         ├─ action 校验
+                                         ├─ tenant/ACL/scope 求交
+                                         ├─ 审计与幂等
+                                         └─ 同进程 RAGFlow 应用服务适配层
 
 专用 Nginx：/api/v1/* -> Quart /api/business/v1/*
 管理网络：原始 RAGFlow /api/v1/*（不得通过专用 Gateway service root 到达）
 ```
 
-Gateway 在 Quart 进程中直接调用已注册的 RAGFlow 应用服务命令，不向自身发 HTTP
+本文后续未加限定的 Gateway 均指 RAGFlow 服务端 Business Gateway。它在 Quart 进程中直接调用已注册的 RAGFlow 应用服务命令，不向自身发 HTTP
 请求，也不使用原始 RAGFlow API Key。检索、解析、向量化和文档存储核心路径保持
 不变。
 
@@ -36,7 +47,7 @@ Gateway 在 Quart 进程中直接调用已注册的 RAGFlow 应用服务命令�
 
 | 凭据 | 持有方 | 用途 | 是否进入 npm/业务日志 |
 |---|---|---|---|
-| Business access token | 业务系统或 Harness 凭据服务 | 调用公共 `/api/v1`；每次由 Gateway Introspection 验证 | npm 只在请求时读取，不持久化、不输出 |
+| Business access token | 业务系统服务端 Provider Adapter | 调用本数据平面的 `/api/v1`；每次由 Gateway Introspection 验证 | 服务端 Client 在请求时读取，不持久化、不输出 |
 | Introspection client 凭据 | Gateway 服务端 secret store | Gateway 向身份系统验证 token；Basic 或 mTLS | 否 |
 | 原始 RAGFlow API Key | 现有 RAGFlow 原始 API 平面，服务端 `api_token` 表 | 现有 Web、管理端或内部 SDK；不参与 Gateway | 绝不进入 Gateway、npm、Gateway 错误或审计 |
 
@@ -56,9 +67,9 @@ v1 只支持 Token Introspection，不维护 JWT/JWKS 双轨。Gateway 使用 RF
 {
   "active": true,
   "subject": "user:42",
-  "actorSubject": "service:crm",
+  "actorSubject": "service:knowledge-adapter",
   "onBehalfOfSubject": "user:42",
-  "workspaceId": "crm-shanghai",
+  "workspaceId": "business-workspace",
   "actions": ["knowledge:retrieve", "dataset:read", "document:read"],
   "datasetScope": {"mode": "ids", "ids": ["kb-1", "kb-2"]},
   "documentScope": {"mode": "inherit"},
@@ -119,7 +130,9 @@ mTLS 使用 `NOMIX_BG_INTROSPECTION_CA_FILE`、`NOMIX_BG_INTROSPECTION_CERT_FILE
 
 Client 发送严格枚举的 `X-Nomix-Call-Source: rest|agent`，仅用于审计入口分类。
 Gateway 会拒绝其他值，但该字段不参与身份、action、scope 或 workspace 判断；把它
-改成 `agent` 不会增加任何权限。插件固定发送 `agent`，直接 Client 默认发送 `rest`。
+改成 `agent` 不会增加任何权限。服务端 Client 默认发送 `rest`，Adapter 可通过 Client 的
+`source` 配置记录调用来源。当前 Agent 插件不调用此数据平面，也不发送这个头；它使用
+独立的服务令牌、用户断言和 Session/Call/Request 关联协议。
 
 ## workspace、tenant 和 permissionRef
 
@@ -159,7 +172,7 @@ NOMIX_BG_ENABLED=true quart --app api.apps business-gateway migration-status
 ```bash
 quart --app api.apps business-gateway bind-workspace \
   --authority https://identity.example.com \
-  --workspace-id crm-shanghai \
+  --workspace-id business-workspace \
   --tenant-id <ragflow-tenant-id> \
   --execution-user-id <ragflow-user-id>
 ```
@@ -190,8 +203,10 @@ message 在服务端绑定、查询并逐项校验该 subject；客户端的 `us
 
 每个 endpoint 的 action 来自唯一 canonical manifest：
 `api/apps/business_gateway/capabilities.v1.json`。同一清单生成 Quart 路由元数据、
-OpenAPI、npm `./manifest` 快照和漂移测试；映射到 Agent 的 operation 还显式声明
-`agentTool`、`agentAction`，会话操作再声明 `agentKind`。manifest 只描述能力，不授予权限。
+OpenAPI、npm `./manifest` 中服务端 `capabilityManifest` 快照和漂移测试。
+服务端清单中的 `agentTool/agentAction/agentKind` 元数据不安装当前 Harness 工具；0.3.0 的
+工具清单独立来自 Knowledge Gateway OpenAPI，并导出为 `knowledgeGatewayCapabilityManifest`。
+两份 manifest 都只描述能力，不授予权限。
 
 ## 数据范围计算
 
@@ -299,10 +314,10 @@ curl --fail-with-body \
 curl --fail-with-body \
   -X POST \
   -H "Authorization: Bearer $BUSINESS_ACCESS_TOKEN" \
-  -H "Idempotency-Key: crm-op-8f92b7" \
+  -H "Idempotency-Key: business-op-8f92b7" \
   -H "Content-Type: application/json" \
   https://ragflow-business.example.com/api/v1/datasets \
-  --data '{"name":"CRM 合同知识库","description":"由 CRM workspace 管理"}'
+  --data '{"name":"合同知识库","description":"由业务 workspace 管理"}'
 ```
 
 更新和单资源删除还必须携带最近一次读取返回的 `version`：
@@ -336,30 +351,24 @@ Business Gateway 的 subject/scope 过滤、Agent DSL 能力限制、幂等与�
 `api/apps/business_gateway/`；原生 RAGFlow Web/API、Chat、Memory、检索、解析、向量化和
 Agent 运行逻辑不承载业务系统权限语义，也不因插件接入而改变行为。
 
-## npm Client 与 Agent
+## npm 服务端 Client 与独立 Agent 插件
 
-RAGFlow 插件与 CRM 插件遵循同一 Harness 分层：`plugin.ts` 只负责配置、凭据引用、
-生命周期和 pre-execute hook；`tools.ts` 只负责封闭的语义工具 schema、结构化 observation
-与稳定工具调用幂等键；`client.ts` 是 REST 和 Agent 共用的唯一传输实现；服务端 manifest
-是 endpoint/action/risk/idempotency 的唯一能力清单。RAGFlow 仅因文件上传多出
-`workspaceRoot`、`maxFileBytes` 与文件安全适配。
+`@nomix-ai/nomix-ragflow/client` 的 `RagFlowBusinessClient` 仅供服务端使用，保留本数据平面的
+资源 API、上传下载、解析和 PageIndex 能力。`./plugin` 不调用它，而只消费 KnowledgeService，
+由独立 `./gateway-provider` 连接业务系统 `/internal/v1/knowledge/**`。两者不能共用 HTTP 契约。
 
 npm 的请求、query 和 path 类型由 Gateway OpenAPI 生成到 `src/openapi.generated.ts`，canonical
 capability 同步生成可发布的 `src/capabilities.generated.json` 快照；`npm run contracts:generate`
 更新二者，`npm run contracts:check` 在验证和发布前阻止漂移。
-Agent 写审批、幂等键生成和 operation 绑定均读取同一 capability，而不是维护独立写操作表。
+同一生成命令还独立检查业务 Knowledge Gateway 契约；其工具审批、并发和幂等元数据
+来自 `integrations/nomix-harness/contracts/knowledge-gateway.openapi.json`，不是本服务端清单。
 
-与 CRM 的刻意差异只有领域需要的加强项：RAGFlow Agent 的所有写操作均审批；RAGFlow
-使用现有 tenant/ACL 与 dataset/document/chat/agent/memory scope 求交，而不是复制 CRM 的 PostgreSQL
-RLS。身份、actions 和业务数据权限都由同一个外部授权系统给出，Gateway 只负责验证、
-映射内部执行主体、求交和强制执行。以上差异都留在 Business Gateway/Harness 边界，
-不改变 RAGFlow 原生业务路径。
+本 Client 更新/单资源删除使用资源此前返回的 `version`，通过 RequestOptions 生成
+`If-Match`。业务 Gateway 对 Agent 则使用 JSON `expectedVersion`，对应自己的业务乐观锁。
+Adapter 必须分别读取/校验两层版本，不能把业务 lockVersion 当成 RAGFlow update_time。
+本 REST/Client 保留的批量命令仍要求有限 ID 列表和权限预检，不表示 Agent 支持批量写。
 
-Agent 的 update/delete 输入要求使用此前读取到的 `version`，Client 只把它放入
-`If-Match`，不开放任意请求头。Agent 删除操作一次只接收一个显式资源 ID；REST/Client
-保留的批量命令仍要求有限 ID 列表、全量权限预检和必需幂等键。
-
-TypeScript 直接调用：
+Provider Adapter 中的 TypeScript 调用示例（`identity` 和 `abortController` 由业务宿主提供）：
 
 ```ts
 import { RagFlowBusinessClient } from '@nomix-ai/nomix-ragflow/client'
@@ -394,66 +403,42 @@ console.log(routed.data.navigation, routed.data.chunks)
 Client 的分页列表、retrieval 和 PageIndex search 保留 REST 的 `{data, meta}` envelope，下一页必须原样
 传回 `meta.nextCursor`，不得解析或自行构造 cursor。
 
-Harness 配置：
+Harness 的四行组合及配置见 [插件 README](../../integrations/nomix-harness/README.zh.md#harness-组合)，
+业务端实现见 [Knowledge Gateway 指南](../../integrations/nomix-harness/contracts/GATEWAY-INTEGRATION.md)。
+Provider 配置 `gatewayBaseURL/serviceTokenRef`，当前 Session 断言通过 businessIdentity 绑定。
+插件不包含本地路径/文件系统配置，也不做二进制或 Base64 上传下载；Agent 上传传 fileResourceId，
+下载由业务 Gateway 签发当前版本 60 秒链接，只有大型结构化 JSON 使用 `SpillStore.saveText`。
 
-```yaml
-- id: ragflow
-  disabled: false
-  config:
-    baseURL: https://ragflow-business.example.com
-    accessTokenRef: RAGFLOW_BUSINESS_ACCESS_TOKEN
-    requestTimeoutMs: 60000
-    workspaceRoot: .
-    # Agent 上传当前以 Harness 内存读取为边界，最大 64 MiB。
-    maxFileBytes: 67108864
-```
-
-插件从当前 `exec.agent.ctx.credentials` 解析凭据，每次工具执行创建执行级 Client，
-且 Client 每次请求重新解析 token；进程级插件 Context 不保存业务 token。所有 Agent 写操作都触发一次性 pre-execute
-审批；工具参数变化后必须重新审批。审批不能增加 token actions 或 scope，Gateway
-仍按相同规则返回 403/404。Agent 自动用稳定 tool call ID 与规范化输入生成
-Idempotency-Key。
-
-上传工具继续执行 workspaceRoot 路径归一化、路径穿越和符号链接逃逸检查，并在
-发起 multipart 请求前限制文件大小；成功 observation 的 `artifacts` 返回 document ID
-和名称。下载通过同一 Client 获取授权内容，按 `artifactMaxBytes` 同时检查声明长度和
-实际流式字节数。当前 Harness `SpillStore` 只提供文本写入接口，因此二进制会在当前
-Agent/session owner 下保存为有界的 `.base64` 文本 artifact；原始名称、媒体类型、字节数
-和 SHA-256 保留在 artifact 元数据中，base64 内容不会进入模型可见 observation。原生二进制
-artifact 需要 Harness 增加 binary/fs artifact provider 后再切换，本次 RAGFlow 插件不会
-私自扩展或替换 Harness 契约。
-
-Harness 当前没有 workspace-safe 的流式二进制读取接口，Agent 上传需要把文件物化在
-内存中。插件因此把默认值和硬上限都设为 64 MiB，并在 `Blob` 构造前不再额外复制完整
-字节数组。大文件由业务系统直接调用 REST 上传；服务端可以按容量规划提高三层预算，
-但必须保持 `NOMIX_BG_MAX_FILE_BYTES < NOMIX_BG_MAX_REQUEST_BYTES <
-NOMIX_BG_PROXY_MAX_REQUEST_BYTES`。Gateway 还要求完整请求至少比单文件上限多 8 MiB，
-用于 multipart boundary、字段和文件名等开销。
+Agent 上传和元数据更新默认 allow，下载及其他变更 ask；所有变更 exclusive，读取 parallel。
+Harness 人工确认不替代业务 Gateway 授权和发布审核。Agent 工具产生的幂等键来源于
+Session/root call/tool call/tool name；业务 Gateway 负责幂等记录及后台操作，再由其 Adapter
+把执行身份映射成本数据平面的幂等键。HTTP 失败不能通过生成新键来猜测性重做。
 
 OpenAPI 为每个 operation 定义独立响应 schema。npm 代码生成器据此生成精确的
 `OperationData<operation>`，Client 在返回前按 operation 校验 `{data, meta}`；列表、
 invoke 和管理操作均不再通过字段探测、响应猜测或类型强转兼容旧形状。
 
-## REST、Client、Agent 映射
+## 服务端 REST 与 Client 映射
 
-| 公共 REST `/api/v1` | Client | Agent tool |
-|---|---|---|
-| `GET /gateway-context` | `authorization.getContext` | `ragflow_discover` |
-| `POST /retrieval` | `retrieval.search` | `ragflow_retrieval` |
-| PageIndex 构建、状态、章节树与检索 | `pageIndex.build/status/get/search` | `ragflow_page_index` |
-| `/datasets*` CRUD/list | `datasets.*` | `ragflow_manage_datasets` |
-| dataset metadata config | `datasets.getMetadataConfig/updateMetadataConfig` | `ragflow_manage_documents` |
-| `/datasets/{datasetId}/documents*` | `documents.*` | `ragflow_manage_documents` |
-| upload/download/parse | `documents.upload/download/startParse/cancelParse` | `ragflow_transfer_documents` |
-| document chunks | `chunks.*` | `ragflow_manage_chunks` |
-| `/chats*` | `chats.*` | `ragflow_manage_chats` |
-| chat/agent sessions 与 invoke | `sessions.*` | `ragflow_manage_sessions` |
-| `/agents*` | `agents.*` | `ragflow_manage_agents` |
-| memories 与 memory messages | `memories.*`, `memoryMessages.*` | `ragflow_manage_memories` |
+| 本数据平面 REST `/api/v1` | 服务端 Client |
+|---|---|
+| `GET /gateway-context` | `authorization.getContext` |
+| `POST /retrieval` | `retrieval.search` |
+| PageIndex 构建、状态、章节树与检索 | `pageIndex.build/status/get/search` |
+| `/datasets*` CRUD/list | `datasets.*` |
+| dataset metadata config | `datasets.getMetadataConfig/updateMetadataConfig` |
+| `/datasets/{datasetId}/documents*` | `documents.*` |
+| upload/download/parse | `documents.upload/download/startParse/cancelParse` |
+| document chunks | `chunks.*` |
+| `/chats*` | `chats.*` |
+| chat/agent sessions 与 invoke | `sessions.*` |
+| `/agents*` | `agents.*` |
+| memories 与 memory messages | `memories.*`, `memoryMessages.*` |
 
-精确 method/path/action/agentAction/idempotency 映射以 `/api/v1/capabilities`、
-`/api/v1/openapi.json` 和 npm `@nomix-ai/nomix-ragflow/manifest` 为准。Agent 没有
-隐藏 endpoint、额外 action 或第二认证路径。
+精确 method/path/action/idempotency 映射以本服务 `/api/v1/capabilities`、
+`/api/v1/openapi.json` 和 npm `./manifest` 的 `capabilityManifest` 为准。这些服务端能力不与
+Agent 工具逐项对应。当前 20 个 `knowledge_*` 工具只映射业务 Knowledge Gateway，见其
+[完整接口表](../../integrations/nomix-harness/contracts/GATEWAY-INTEGRATION.md#4-gateway-必须实现的-20-个接口)。
 
 ## 错误、幂等与审计
 
@@ -652,16 +637,14 @@ dataset/document 的读写删除及 retrieval 统一 404、真实对象存储上
 - 先灰度一个 Gateway 实例，观察 401/403/404/409/503、延迟与审计写入，再逐步切流；回滚只
   回滚应用和代理，不回滚前向数据库迁移。
 
-## 1.0 兼容性变化
+## 两个边界的部署检查
 
-npm 1.0 是破坏性升级，不提供直连兼容模式：
-
-- 删除 `RagFlowClient`、`RagFlowApiError`、`apiKey`、`apiKeyRef` 和 `apiVersion`。
-- `baseURL` 改为专用 Gateway service root，且不包含 `/api/v1`。
-- Client 使用 `accessToken` 字符串或 provider；插件使用 `accessTokenRef`。
-- 删除原始 API 路径、隐式 dataset 枚举、`deleteAll` 和任何直连回退。
-- 新增独立 `./client`、`./plugin`、`./types`、`./errors`、`./manifest` 导出。
-- Introspection 契约必须同时返回 `chatScope`、`agentScope`、`memoryScope`；旧响应会以
-  `AUTH_CONTEXT_INCOMPLETE` 失败关闭，不会回退为 tenant 全可见。
-
-旧配置必须显式迁移。不要把旧 RAGFlow API Key 复制到新的 access token 字段。
+- 本服务端 Client 使用 `baseURL/accessToken`，baseURL 不包含 `/api/v1`；不要把原生 RAGFlow
+  API Key 放入 Business access token 字段。
+- Agent Gateway Provider 使用业务端 `gatewayBaseURL/serviceTokenRef`，地址不包含
+  `/internal/v1/knowledge`；用户断言按 Session 动态绑定，不使用静态用户凭据配置。
+- 本文的 Introspection/scopes、If-Match、cursor/limit、multipart 与顶层 error，只适用于
+  RAGFlow 服务端数据平面。它们不覆盖 Agent/Gateway 契约的双凭据、expectedVersion、
+  page/pageSize、fileResourceId 与 meta.error。
+- 本文生产门禁验证 RAGFlow 数据平面，不代替业务 Knowledge Gateway 的真实 ACL、版本切换、
+  Worker、引用、检索融合与 Session 端到端验收。

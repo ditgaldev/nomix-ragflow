@@ -1,0 +1,16 @@
+{
+  "name": "dsh-business-identity",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./business-identity.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@nomix-ai/nomix-harness": "0.2.9",
+    "dsh-knowledge": "file:../dsh-knowledge"
+  }
+}

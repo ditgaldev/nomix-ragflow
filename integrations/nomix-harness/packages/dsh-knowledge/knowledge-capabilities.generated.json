@@ -1,0 +1,498 @@
+{
+  "standardVersion": "v1",
+  "service": "knowledge-gateway",
+  "source": "Knowledge Gateway OpenAPI",
+  "requiredHeaders": [
+    "X-User-Assertion",
+    "X-Harness-Session-Id",
+    "X-Tool-Call-Id",
+    "X-Request-Id"
+  ],
+  "businessRules": {
+    "authorizationOwner": "business-knowledge-gateway",
+    "identitySource": "dsh-business-identity-session-binding",
+    "providerSelectionOwner": "business-knowledge-gateway",
+    "pageIndex": {
+      "owner": "ragflow",
+      "treeExposure": "none",
+      "tuningExposure": "none"
+    },
+    "lifecycle": {
+      "space": [
+        "CREATING",
+        "ACTIVE",
+        "CREATE_FAILED",
+        "DISABLED",
+        "DELETING",
+        "DELETED",
+        "DELETE_FAILED"
+      ],
+      "document": [
+        "CREATING",
+        "ACTIVE",
+        "CREATE_FAILED",
+        "DISABLED",
+        "DELETING",
+        "DELETED"
+      ],
+      "version": [
+        "CREATED",
+        "UPLOADING",
+        "UPLOADED",
+        "INGESTING",
+        "READY",
+        "FAILED",
+        "CANCELLED",
+        "RETIRED",
+        "DELETED"
+      ],
+      "operation": [
+        "PENDING",
+        "RUNNING",
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELLED"
+      ]
+    },
+    "searchEligibility": {
+      "documentStatus": "ACTIVE",
+      "activeVersionStatus": "READY"
+    },
+    "searchLimits": {
+      "maximumHits": 8,
+      "maximumHitsPerDocument": 4,
+      "maximumHitCodePoints": 2500,
+      "maximumTotalCodePoints": 16000
+    },
+    "citationContext": {
+      "unit": "unicode-code-point",
+      "defaultBefore": 1000,
+      "defaultAfter": 1000,
+      "maximumBefore": 5000,
+      "maximumMatch": 2500,
+      "maximumAfter": 5000,
+      "maximumTotal": 12500
+    },
+    "download": {
+      "activeVersionOnly": true,
+      "fixedExpirySeconds": 60,
+      "binaryTransfer": false
+    },
+    "writeCardinality": "single-resource",
+    "idempotency": "tool-call-derived-header",
+    "automaticRetry": {
+      "owner": "gateway-worker",
+      "sameOperation": true,
+      "maximumAttempts": 5
+    },
+    "manualRetry": {
+      "createsChildOperation": true,
+      "maximumAttempts": 3
+    },
+    "approvalPolicy": {
+      "allow": [
+        "knowledge_space_list",
+        "knowledge_space_get",
+        "knowledge_document_list",
+        "knowledge_document_get",
+        "knowledge_search",
+        "knowledge_source_read",
+        "knowledge_operation_get",
+        "knowledge_document_upload",
+        "knowledge_document_update"
+      ],
+      "ask": [
+        "knowledge_document_download",
+        "knowledge_document_replace",
+        "knowledge_document_enable",
+        "knowledge_document_disable",
+        "knowledge_document_reindex",
+        "knowledge_operation_cancel",
+        "knowledge_operation_retry",
+        "knowledge_space_create",
+        "knowledge_space_update",
+        "knowledge_space_delete",
+        "knowledge_document_delete"
+      ]
+    },
+    "documentDetail": {
+      "versionPointers": [
+        "activeVersion",
+        "candidateVersion"
+      ],
+      "pointerOwner": "gateway",
+      "progress": "provider-or-terminal-only",
+      "searchable": "status=ACTIVE AND activeVersion.status=READY",
+      "retry": "same candidate version, new child operation",
+      "render": "both version slots; null progress is unavailable, not zero"
+    },
+    "httpEnvelope": {
+      "topLevel": [
+        "data",
+        "meta"
+      ],
+      "errors": "meta.error",
+      "pagination": "meta.pagination; page/pageSize; no cursor",
+      "apiVersion": "v1",
+      "protocolError": "KNOWLEDGE_GATEWAY_PROTOCOL_ERROR"
+    },
+    "metadata": {
+      "fields": [
+        "category",
+        "tags",
+        "versionLabel",
+        "productCode"
+      ],
+      "normalization": "NFC then trim; case-sensitive",
+      "maxBytes": 4096,
+      "patch": "omitted=unchanged, null clears strings, [] clears tags",
+      "filter": "AND fields; OR arrays except tagsAll; exact normalized matches",
+      "emptyFilterArrays": "reject; omit a field to leave it unconstrained"
+    },
+    "optimisticLock": {
+      "document": "Detail lockVersion and summary version are the same nonnegative lock counter; pass unchanged as expectedVersion. Not versionNo/versionNumber.",
+      "space": "version and expectedVersion start at 1"
+    },
+    "pagination": "page/pageSize echo the request. totalItems counts visible matching resources; totalPages=ceil(totalItems/pageSize); hasNext=page<totalPages. Empty results use totalPages=0; pages beyond totalPages return empty items. Items cannot exceed pageSize or the remaining total."
+  },
+  "operations": [
+    {
+      "operation": "knowledgeCitationRead",
+      "method": "GET",
+      "path": "/internal/v1/knowledge/citations/{citationId}",
+      "tool": "knowledge_source_read",
+      "actions": [
+        "DOCUMENT_VIEW"
+      ],
+      "risk": "read",
+      "approval": "allow",
+      "concurrency": "parallel",
+      "retrySafe": true,
+      "idempotency": "none",
+      "responseSchema": "CitationSource",
+      "toolSchema": "KnowledgeSourceReadToolInput",
+      "querySchema": "CitationContextRequest"
+    },
+    {
+      "operation": "knowledgeDocumentCreateDownloadLink",
+      "method": "POST",
+      "path": "/internal/v1/knowledge/documents/{documentId}:create-download-link",
+      "tool": "knowledge_document_download",
+      "actions": [
+        "DOCUMENT_DOWNLOAD"
+      ],
+      "risk": "read",
+      "approval": "ask",
+      "concurrency": "parallel",
+      "retrySafe": false,
+      "idempotency": "none",
+      "responseSchema": "DownloadLink",
+      "toolSchema": "KnowledgeDocumentDownloadToolInput",
+      "requestSchema": "EmptyRequest"
+    },
+    {
+      "operation": "knowledgeDocumentDelete",
+      "method": "POST",
+      "path": "/internal/v1/knowledge/documents/{documentId}:delete",
+      "tool": "knowledge_document_delete",
+      "actions": [
+        "DOCUMENT_DELETE"
+      ],
+      "risk": "admin",
+      "approval": "ask",
+      "concurrency": "exclusive",
+      "retrySafe": false,
+      "idempotency": "required",
+      "responseSchema": "DocumentOperationAccepted",
+      "toolSchema": "KnowledgeDocumentDeleteToolInput",
+      "requestSchema": "DocumentDeleteRequest"
+    },
+    {
+      "operation": "knowledgeDocumentDisable",
+      "method": "POST",
+      "path": "/internal/v1/knowledge/documents/{documentId}:disable",
+      "tool": "knowledge_document_disable",
+      "actions": [
+        "DOCUMENT_UPDATE"
+      ],
+      "risk": "write",
+      "approval": "ask",
+      "concurrency": "exclusive",
+      "retrySafe": false,
+      "idempotency": "required",
+      "responseSchema": "KnowledgeDocument",
+      "toolSchema": "KnowledgeDocumentDisableToolInput",
+      "requestSchema": "VersionedResourceRequest"
+    },
+    {
+      "operation": "knowledgeDocumentEnable",
+      "method": "POST",
+      "path": "/internal/v1/knowledge/documents/{documentId}:enable",
+      "tool": "knowledge_document_enable",
+      "actions": [
+        "DOCUMENT_UPDATE"
+      ],
+      "risk": "write",
+      "approval": "ask",
+      "concurrency": "exclusive",
+      "retrySafe": false,
+      "idempotency": "required",
+      "responseSchema": "KnowledgeDocument",
+      "toolSchema": "KnowledgeDocumentEnableToolInput",
+      "requestSchema": "VersionedResourceRequest"
+    },
+    {
+      "operation": "knowledgeDocumentGet",
+      "method": "GET",
+      "path": "/internal/v1/knowledge/documents/{documentId}",
+      "tool": "knowledge_document_get",
+      "actions": [
+        "DOCUMENT_VIEW"
+      ],
+      "risk": "read",
+      "approval": "allow",
+      "concurrency": "parallel",
+      "retrySafe": true,
+      "idempotency": "none",
+      "responseSchema": "KnowledgeDocumentDetail",
+      "toolSchema": "KnowledgeDocumentGetToolInput"
+    },
+    {
+      "operation": "knowledgeDocumentReindex",
+      "method": "POST",
+      "path": "/internal/v1/knowledge/documents/{documentId}:reindex",
+      "tool": "knowledge_document_reindex",
+      "actions": [
+        "DOCUMENT_REINDEX"
+      ],
+      "risk": "write",
+      "approval": "ask",
+      "concurrency": "exclusive",
+      "retrySafe": false,
+      "idempotency": "required",
+      "responseSchema": "DocumentOperationAccepted",
+      "toolSchema": "KnowledgeDocumentReindexToolInput",
+      "requestSchema": "VersionedResourceRequest"
+    },
+    {
+      "operation": "knowledgeDocumentReplace",
+      "method": "POST",
+      "path": "/internal/v1/knowledge/documents/{documentId}:replace",
+      "tool": "knowledge_document_replace",
+      "actions": [
+        "DOCUMENT_UPDATE"
+      ],
+      "risk": "write",
+      "approval": "ask",
+      "concurrency": "exclusive",
+      "retrySafe": false,
+      "idempotency": "required",
+      "responseSchema": "DocumentOperationAccepted",
+      "toolSchema": "KnowledgeDocumentReplaceToolInput",
+      "requestSchema": "KnowledgeDocumentReplaceRequest"
+    },
+    {
+      "operation": "knowledgeDocumentsList",
+      "method": "GET",
+      "path": "/internal/v1/knowledge/spaces/{spaceId}/documents",
+      "tool": "knowledge_document_list",
+      "actions": [
+        "DOCUMENT_VIEW"
+      ],
+      "risk": "read",
+      "approval": "allow",
+      "concurrency": "parallel",
+      "retrySafe": true,
+      "idempotency": "none",
+      "responseSchema": "KnowledgeDocumentList",
+      "toolSchema": "KnowledgeDocumentListToolInput",
+      "querySchema": "ListDocumentsRequest"
+    },
+    {
+      "operation": "knowledgeDocumentUpdate",
+      "method": "PATCH",
+      "path": "/internal/v1/knowledge/documents/{documentId}",
+      "tool": "knowledge_document_update",
+      "actions": [
+        "DOCUMENT_UPDATE"
+      ],
+      "risk": "write",
+      "approval": "allow",
+      "concurrency": "exclusive",
+      "retrySafe": false,
+      "idempotency": "required",
+      "responseSchema": "KnowledgeDocument",
+      "toolSchema": "KnowledgeDocumentUpdateToolInput",
+      "requestSchema": "KnowledgeDocumentUpdateRequest"
+    },
+    {
+      "operation": "knowledgeDocumentUpload",
+      "method": "POST",
+      "path": "/internal/v1/knowledge/spaces/{spaceId}/documents",
+      "tool": "knowledge_document_upload",
+      "actions": [
+        "DOCUMENT_UPLOAD"
+      ],
+      "risk": "write",
+      "approval": "allow",
+      "concurrency": "exclusive",
+      "retrySafe": false,
+      "idempotency": "required",
+      "responseSchema": "DocumentOperationAccepted",
+      "toolSchema": "KnowledgeDocumentUploadToolInput",
+      "requestSchema": "KnowledgeDocumentUploadRequest"
+    },
+    {
+      "operation": "knowledgeOperationCancel",
+      "method": "POST",
+      "path": "/internal/v1/knowledge/operations/{operationId}:cancel",
+      "tool": "knowledge_operation_cancel",
+      "actions": [
+        "ORIGINAL_OPERATION_PERMISSION"
+      ],
+      "risk": "write",
+      "approval": "ask",
+      "concurrency": "exclusive",
+      "retrySafe": false,
+      "idempotency": "required",
+      "responseSchema": "KnowledgeOperation",
+      "toolSchema": "KnowledgeOperationCancelToolInput",
+      "requestSchema": "OperationReasonRequest"
+    },
+    {
+      "operation": "knowledgeOperationGet",
+      "method": "GET",
+      "path": "/internal/v1/knowledge/operations/{operationId}",
+      "tool": "knowledge_operation_get",
+      "actions": [
+        "RESOURCE_VIEW"
+      ],
+      "risk": "read",
+      "approval": "allow",
+      "concurrency": "parallel",
+      "retrySafe": true,
+      "idempotency": "none",
+      "responseSchema": "KnowledgeOperation",
+      "toolSchema": "KnowledgeOperationGetToolInput"
+    },
+    {
+      "operation": "knowledgeOperationRetry",
+      "method": "POST",
+      "path": "/internal/v1/knowledge/operations/{operationId}:retry",
+      "tool": "knowledge_operation_retry",
+      "actions": [
+        "ORIGINAL_OPERATION_PERMISSION",
+        "OPERATION_RETRY"
+      ],
+      "risk": "write",
+      "approval": "ask",
+      "concurrency": "exclusive",
+      "retrySafe": false,
+      "idempotency": "required",
+      "responseSchema": "ManualRetryOperation",
+      "toolSchema": "KnowledgeOperationRetryToolInput",
+      "requestSchema": "OperationReasonRequest"
+    },
+    {
+      "operation": "knowledgeSearch",
+      "method": "POST",
+      "path": "/internal/v1/knowledge/search",
+      "tool": "knowledge_search",
+      "actions": [
+        "KNOWLEDGE_SEARCH"
+      ],
+      "risk": "read",
+      "approval": "allow",
+      "concurrency": "parallel",
+      "retrySafe": true,
+      "idempotency": "none",
+      "responseSchema": "RetrievalResult",
+      "toolSchema": "KnowledgeSearchToolInput",
+      "requestSchema": "RetrievalRequest"
+    },
+    {
+      "operation": "knowledgeSpaceCreate",
+      "method": "POST",
+      "path": "/internal/v1/knowledge/spaces",
+      "tool": "knowledge_space_create",
+      "actions": [
+        "SPACE_CREATE"
+      ],
+      "risk": "admin",
+      "approval": "ask",
+      "concurrency": "exclusive",
+      "retrySafe": false,
+      "idempotency": "required",
+      "responseSchema": "KnowledgeSpaceCreated",
+      "toolSchema": "KnowledgeSpaceCreateToolInput",
+      "requestSchema": "KnowledgeSpaceCreateRequest"
+    },
+    {
+      "operation": "knowledgeSpaceDelete",
+      "method": "POST",
+      "path": "/internal/v1/knowledge/spaces/{spaceId}:delete",
+      "tool": "knowledge_space_delete",
+      "actions": [
+        "SPACE_DELETE"
+      ],
+      "risk": "admin",
+      "approval": "ask",
+      "concurrency": "exclusive",
+      "retrySafe": false,
+      "idempotency": "required",
+      "responseSchema": "SpaceOperationAccepted",
+      "toolSchema": "KnowledgeSpaceDeleteToolInput",
+      "requestSchema": "DeleteResourceRequest"
+    },
+    {
+      "operation": "knowledgeSpaceGet",
+      "method": "GET",
+      "path": "/internal/v1/knowledge/spaces/{spaceId}",
+      "tool": "knowledge_space_get",
+      "actions": [
+        "SPACE_VIEW"
+      ],
+      "risk": "read",
+      "approval": "allow",
+      "concurrency": "parallel",
+      "retrySafe": true,
+      "idempotency": "none",
+      "responseSchema": "KnowledgeSpace",
+      "toolSchema": "KnowledgeSpaceGetToolInput"
+    },
+    {
+      "operation": "knowledgeSpacesList",
+      "method": "GET",
+      "path": "/internal/v1/knowledge/spaces",
+      "tool": "knowledge_space_list",
+      "actions": [
+        "SPACE_VIEW"
+      ],
+      "risk": "read",
+      "approval": "allow",
+      "concurrency": "parallel",
+      "retrySafe": true,
+      "idempotency": "none",
+      "responseSchema": "KnowledgeSpaceList",
+      "toolSchema": "KnowledgeSpaceListToolInput",
+      "querySchema": "ListSpacesRequest"
+    },
+    {
+      "operation": "knowledgeSpaceUpdate",
+      "method": "PATCH",
+      "path": "/internal/v1/knowledge/spaces/{spaceId}",
+      "tool": "knowledge_space_update",
+      "actions": [
+        "SPACE_UPDATE"
+      ],
+      "risk": "admin",
+      "approval": "ask",
+      "concurrency": "exclusive",
+      "retrySafe": false,
+      "idempotency": "required",
+      "responseSchema": "KnowledgeSpaceUpdated",
+      "toolSchema": "KnowledgeSpaceUpdateToolInput",
+      "requestSchema": "KnowledgeSpaceUpdateRequest"
+    }
+  ]
+}

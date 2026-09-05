@@ -70,49 +70,6 @@ export interface RequestOptions {
 
 export type VersionedRequestOptions = RequestOptions & { version: number }
 
-export type RagFlowToolDataEntry =
-  | { path: string; kind: 'object' | 'array' | 'null' }
-  | { path: string; kind: 'string'; stringValue: string }
-  | { path: string; kind: 'number'; numberValue: number }
-  | { path: string; kind: 'boolean'; booleanValue: boolean }
-
-export type RagFlowToolObservationData =
-  | {
-      kind: 'authorization' | 'retrieval' | 'resource' | 'resource-list' | 'mutation' | 'invocation'
-      format: 'json-entries'
-      entries: RagFlowToolDataEntry[]
-      bytes: number
-      truncated: false
-    }
-  | {
-      kind: 'artifact-reference'
-      format: 'artifact-reference'
-      artifactName: string
-      bytes: number
-      truncated: true
-    }
-
-export interface RagFlowToolArtifact {
-  kind: 'spill'
-  name: string
-  locator: string
-  mimeType: string
-  encoding: 'utf8' | 'base64'
-  originalName?: string
-  originalMimeType?: string
-  bytes: number
-  storedBytes: number
-  sha256?: string
-  retrievalHint: string
-}
-
-export interface ToolOutput {
-  status: 'success' | 'warning'
-  summary: string
-  data: RagFlowToolObservationData
-  nextActions: string[]
-  artifacts: RagFlowToolArtifact[]
-}
 import type {
   OpenApiBusinessAuthorizationContext,
   OpenApiJsonObject,

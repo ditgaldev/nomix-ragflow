@@ -1,0 +1,17 @@
+# The business system binds each signed user assertion to its Harness session
+# through business-identity. The Agent composition remains disabled until the
+# Gateway service token, endpoint, and explicit Agent toolsets are configured.
+- insert:
+    - id: business-identity
+      name: '@nomix-ai/nomix-ragflow/business-identity'
+
+    - id: knowledge-service
+      name: '@nomix-ai/nomix-ragflow/service'
+
+    - id: knowledge-gateway
+      name: '@nomix-ai/nomix-ragflow/gateway-provider'
+      disabled: true
+
+    - id: knowledge
+      name: '@nomix-ai/nomix-ragflow/plugin'
+      disabled: true

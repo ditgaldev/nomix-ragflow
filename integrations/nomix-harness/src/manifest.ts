@@ -1,86 +1,81 @@
-import value from './capabilities.generated.json' with { type: 'json' }
-import { DEFAULT_RAGFLOW_AGENT_ARTIFACT_MAX_BYTES, effectiveBinaryArtifactBytes, RAGFLOW_AGENT_TOOL_NAMES } from './harness-contract.js'
+import ragFlowValue from './capabilities.generated.json' with { type: 'json' }
+import knowledgeValue from '../packages/dsh-knowledge/knowledge-capabilities.generated.json' with { type: 'json' }
+import { KNOWLEDGE_AGENT_TOOL_NAMES, TOOLSET_TOOLS } from '../packages/dsh-knowledge/harness-contract.js'
 
 export type CapabilityRisk = 'read' | 'write' | 'destructive'
 export type CapabilityIdempotency = 'none' | 'supported' | 'required'
+export interface BusinessGatewayCapability { operation: string; method: string; path: string; requiredAction: string; additionalRequiredActions: string[]; resourceType: string; risk: CapabilityRisk; idempotency: CapabilityIdempotency; clientMethod: string }
+export interface BusinessGatewayCapabilityManifest { standardVersion: 'v1'; service: 'nomix-ragflow'; plane: 'data'; operations: BusinessGatewayCapability[] }
 
-export interface BusinessGatewayCapability {
+/** RAGFlow provider contract retained exclusively for the server-side client. */
+export const capabilityManifest = ragFlowValue as BusinessGatewayCapabilityManifest
+
+export interface KnowledgeGatewayCapability {
   operation: string
   method: string
   path: string
-  requiredAction: string
-  additionalRequiredActions: string[]
-  resourceType: string
-  risk: CapabilityRisk
-  idempotency: CapabilityIdempotency
-  clientMethod: string
-  agentTool?: string
-  agentAction?: string
-  agentKind?: 'chat' | 'agent'
+  tool: string
+  actions: string[]
+  risk: 'read' | 'write' | 'admin'
+  approval: 'allow' | 'ask'
+  concurrency: 'parallel' | 'exclusive'
+  retrySafe: boolean
+  idempotency: 'none' | 'required'
+  requestSchema?: string
+  querySchema?: string
+  responseSchema: string
+  toolSchema: string
 }
 
-export interface BusinessGatewayCapabilityManifest {
+export interface KnowledgeGatewayCapabilityManifest {
   standardVersion: 'v1'
-  service: 'nomix-ragflow'
-  plane: 'data'
-  operations: BusinessGatewayCapability[]
-}
-
-/** Generated package snapshot of the server's canonical capability manifest. */
-export const capabilityManifest = value as BusinessGatewayCapabilityManifest
-
-const capabilitiesByOperation = new Map(capabilityManifest.operations.map(capability => [capability.operation, capability]))
-const agentToolNames = new Set(capabilityManifest.operations.flatMap(capability => capability.agentTool === undefined ? [] : [capability.agentTool]))
-
-export function isRagFlowAgentTool(name: string): boolean {
-  return agentToolNames.has(name)
-}
-
-/** Resolve and validate the canonical REST operation used by one Agent action. */
-export function agentCapability(
-  operation: string,
-  tool: string,
-  action: string,
-  kind?: 'chat' | 'agent',
-): BusinessGatewayCapability {
-  const capability = capabilitiesByOperation.get(operation)
-  if (capability === undefined
-    || capability.agentTool !== tool
-    || capability.agentAction !== action
-    || capability.agentKind !== kind) {
-    throw new Error(`Agent binding ${tool}.${action}${kind === undefined ? '' : `.${kind}`} does not match canonical operation ${operation}`)
+  service: 'knowledge-gateway'
+  source: 'Knowledge Gateway OpenAPI'
+  requiredHeaders: string[]
+  businessRules: {
+    authorizationOwner: 'business-knowledge-gateway'
+    identitySource: 'dsh-business-identity-session-binding'
+    providerSelectionOwner: 'business-knowledge-gateway'
+    pageIndex: { owner: 'ragflow'; treeExposure: 'none'; tuningExposure: 'none' }
+    lifecycle: {
+      space: string[]
+      document: string[]
+      version: string[]
+      operation: string[]
+    }
+    searchEligibility: { documentStatus: 'ACTIVE'; activeVersionStatus: 'READY' }
+    searchLimits: { maximumHits: 8; maximumHitsPerDocument: 4; maximumHitCodePoints: 2500; maximumTotalCodePoints: 16000 }
+    citationContext: { unit: 'unicode-code-point'; defaultBefore: 1000; defaultAfter: 1000; maximumBefore: 5000; maximumMatch: 2500; maximumAfter: 5000; maximumTotal: 12500 }
+    download: { activeVersionOnly: true; fixedExpirySeconds: 60; binaryTransfer: false }
+    writeCardinality: 'single-resource'
+    idempotency: 'tool-call-derived-header'
+    automaticRetry: { owner: 'gateway-worker'; sameOperation: true; maximumAttempts: 5 }
+    manualRetry: { createsChildOperation: true; maximumAttempts: 3 }
+    approvalPolicy: { allow: string[]; ask: string[] }
   }
-  return capability
+  operations: KnowledgeGatewayCapability[]
 }
 
-/** Return every canonical operation represented by a concrete Agent action. */
-export function agentCapabilities(tool: string, action: string): readonly BusinessGatewayCapability[] {
-  return capabilityManifest.operations.filter(capability => capability.agentTool === tool && capability.agentAction === action)
-}
+export const knowledgeGatewayCapabilityManifest = knowledgeValue as KnowledgeGatewayCapabilityManifest
 
-/** Harness composition metadata. This describes capabilities and grants no permission. */
-export const ragFlowHarnessCapabilityManifest = {
+/** Agent-facing capability contract. Authorization and provider mapping remain Gateway-only. */
+export const knowledgeHarnessCapabilityManifest = {
   standardVersion: 'v1',
-  service: 'nomix-ragflow',
-  architecture: 'service-provider-consumer',
-  tools: RAGFLOW_AGENT_TOOL_NAMES,
-  agentSelection: 'agent-scope-or-preset-or-explicit-all',
-  rootSelectionRequired: true,
-  providerSelection: 'explicit-or-exactly-one',
-  credentialResolution: 'agent-context-per-operation',
-  networkClient: 'RagFlowBusinessClient',
-  configurationValidation: 'load-time-before-registration',
-  discovery: 'redacted-authorization-summary',
-  riskAndApprovalSource: 'business-gateway-capability-manifest',
-  concurrency: 'read-parallel-write-exclusive',
-  idempotency: 'agent-business-intent-operation-id',
-  toolTimeout: 'gateway-deadline-plus-artifact-grace',
-  output: 'closed-discriminated-observation',
-  artifactPlane: {
-    text: 'spill-text',
-    binary: 'base64-text-spill-fallback',
-    nativeBinary: false,
-    defaultMaxStoredBytes: DEFAULT_RAGFLOW_AGENT_ARTIFACT_MAX_BYTES,
-    effectiveDefaultMaxBinaryBytes: effectiveBinaryArtifactBytes(DEFAULT_RAGFLOW_AGENT_ARTIFACT_MAX_BYTES),
-  },
+  service: 'knowledge-gateway',
+  package: '@nomix-ai/nomix-ragflow',
+  architecture: 'business-identity-service-provider-consumer',
+  endpointPrefix: '/internal/v1/knowledge/',
+  tools: KNOWLEDGE_AGENT_TOOL_NAMES,
+  toolsets: TOOLSET_TOOLS,
+  identity: ['harness-service-token', 'session-bound-user-assertion'],
+  identityBinding: 'dsh-business-identity',
+  authorization: 'gateway-only',
+  concurrency: 'contract-policy-per-tool',
+  idempotency: 'harness-tool-execution-derived',
+  binary: false,
+  spill: 'utf8-json-saveText',
+  responseValidation: 'generated-openapi-runtime',
+  responseReadLimit: 'artifactMaxBytes',
+  pageIndex: knowledgeGatewayCapabilityManifest.businessRules.pageIndex,
+  operations: knowledgeGatewayCapabilityManifest.operations,
 } as const

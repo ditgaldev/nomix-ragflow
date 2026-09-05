@@ -19,20 +19,26 @@ import * as client from '@nomix-ai/nomix-ragflow'
 import { RagFlowBusinessClient } from '@nomix-ai/nomix-ragflow/client'
 import { BusinessGatewayError } from '@nomix-ai/nomix-ragflow/errors'
 import { capabilityManifest } from '@nomix-ai/nomix-ragflow/manifest'
+import { knowledgeGatewayRoutes } from '@nomix-ai/nomix-ragflow/knowledge-contract'
+import knowledgeOpenAPI from '@nomix-ai/nomix-ragflow/knowledge-openapi.json' with { type: 'json' }
 import * as types from '@nomix-ai/nomix-ragflow/types'
 if (typeof client.RagFlowBusinessClient !== 'function' || client.default !== undefined) process.exit(2)
 if (typeof RagFlowBusinessClient !== 'function' || typeof BusinessGatewayError !== 'function') process.exit(3)
 if (capabilityManifest.standardVersion !== 'v1' || Object.keys(types).length !== 0) process.exit(4)
+if (knowledgeGatewayRoutes.knowledgeSearch.dataSchema !== 'RetrievalResult') process.exit(13)
+if (knowledgeOpenAPI.openapi !== '3.1.0' || !knowledgeOpenAPI.paths['/internal/v1/knowledge/search'].post.requestBody) process.exit(15)
 `)
 execFileSync(process.execPath, [join(directory, 'consumer.mjs')], { cwd: directory, stdio: 'inherit' })
 await writeFile(join(directory, 'consumer.ts'), `
 import { RagFlowBusinessClient, BusinessGatewayError, type Dataset, type GatewayResult } from '@nomix-ai/nomix-ragflow'
 import type { BusinessGatewayCapabilityManifest } from '@nomix-ai/nomix-ragflow/manifest'
+import type { RetrievalResult } from '@nomix-ai/nomix-ragflow/knowledge-contract'
 const client = new RagFlowBusinessClient({ baseURL: 'http://localhost:9380', accessToken: async () => 'test-business-token' })
-const values: [Promise<GatewayResult<Dataset[]>>, typeof BusinessGatewayError, BusinessGatewayCapabilityManifest['standardVersion']] = [
+const values: [Promise<GatewayResult<Dataset[]>>, typeof BusinessGatewayError, BusinessGatewayCapabilityManifest['standardVersion'], RetrievalResult['traceId']] = [
   client.datasets.list(),
   BusinessGatewayError,
   'v1',
+  'trace-1',
 ]
 void values
 `)
@@ -44,11 +50,14 @@ const tsc = new URL('../node_modules/typescript/bin/tsc', import.meta.url)
 execFileSync(process.execPath, [fileURLToPath(tsc), '-p', join(directory, 'tsconfig.json')], { cwd: directory, stdio: 'inherit' })
 await writeFile(join(directory, 'plugin.mjs'), `
 import * as plugin from '@nomix-ai/nomix-ragflow/plugin'
-import Service, { RagFlowRuntime } from '@nomix-ai/nomix-ragflow/service'
-import * as provider from '@nomix-ai/nomix-ragflow/provider'
-import * as consumer from '@nomix-ai/nomix-ragflow/consumer'
+import * as provider from '@nomix-ai/nomix-ragflow/gateway-provider'
+import BusinessIdentity, { BusinessIdentityRuntime } from '@nomix-ai/nomix-ragflow/business-identity'
+import Service, { KnowledgeRuntime } from '@nomix-ai/nomix-ragflow/service'
 if (plugin.name !== 'nomix-ragflow' || typeof plugin.apply !== 'function' || plugin.default !== undefined) process.exit(5)
-if (Service !== RagFlowRuntime || typeof provider.BusinessGatewayRagFlowProvider !== 'function' || typeof consumer.applyRagFlowConsumer !== 'function') process.exit(10)
+if (Service !== KnowledgeRuntime) process.exit(10)
+if (BusinessIdentity !== BusinessIdentityRuntime) process.exit(14)
+if (typeof provider.apply !== 'function' || !provider.Config || !plugin.KNOWLEDGE_EVIDENCE_INSTRUCTIONS) process.exit(15)
+if (typeof provider.KnowledgeGatewayProvider !== 'function' || provider.name !== 'nomix-knowledge-gateway-provider') process.exit(16)
 `)
 execFileSync(process.execPath, [join(directory, 'plugin.mjs')], { cwd: directory, stdio: 'inherit' })
 const installed = JSON.parse(await readFile(join(directory, 'node_modules/@nomix-ai/nomix-ragflow/package.json'), 'utf8'))
@@ -63,12 +72,16 @@ async function walk(path, prefix = '') {
 }
 await walk(installedRoot)
 if (packageFiles.some(path => path.endsWith('.env') || path.endsWith('.py') || path.includes('server-only'))) process.exit(6)
-const runtimeFiles = packageFiles.filter(path => path.startsWith('lib/') || path === 'cordis.patch.yml' || path === 'package.json')
+const runtimeFiles = packageFiles.filter(path => path.startsWith('lib/') || path === 'packages/dsh-bundle-ragflow-knowledge/cordis.patch.yml' || path === 'package.json')
 const runtimeText = (await Promise.all(runtimeFiles.map(path => readFile(join(installedRoot, path), 'utf8')))).join('\n')
 if (/apiKeyRef|RagFlowClient|RagFlowApiError|RAGFLOW_API_KEY|ragflow-[a-z0-9]{32,}/iu.test(runtimeText)) process.exit(7)
-const browserClientFiles = packageFiles.filter(path => /^lib\/client(?:\d+)?\.js$/u.test(path))
+const pluginRuntimeText = (await Promise.all(packageFiles.filter(path => path.startsWith('lib/packages/') && path.endsWith('.js') && !path.endsWith('/tool-contracts.js')).map(path => readFile(join(installedRoot, path), 'utf8')))).join('\n')
+const pluginTypesText = (await Promise.all(['lib/packages/dsh-bundle-ragflow-knowledge/plugin.d.ts', 'lib/packages/dsh-knowledge-gateway/provider.d.ts', 'lib/packages/dsh-bundle-ragflow-knowledge/consumer.d.ts'].map(path => readFile(join(installedRoot, path), 'utf8')))).join('\n')
+if (/ragflow_(?:discover|retrieval|page_index|manage|transfer)|knowledge_(?:ingestion_cancel|document_retry)|Buffer\.[^(]*\([^)]*base64|encoding:\s*['"]base64|plugin\/fs|x-root-call-id|traceparent/u.test(pluginRuntimeText)) process.exit(11)
+if (/\b(?:baseURL|accessTokenRef|userAssertionRef|workspaceRoot|maxFileBytes|sourcePath)\b/u.test(pluginTypesText)) process.exit(12)
+const browserClientFiles = packageFiles.filter(path => /^lib\/src\/client(?:\d+)?\.js$/u.test(path))
 const browserClientText = (await Promise.all(browserClientFiles.map(path => readFile(join(installedRoot, path), 'utf8')))).join('\n')
 if (/\bnode:/u.test(browserClientText)) process.exit(8)
-const publicTypesText = (await Promise.all(['lib/client.d.ts', 'lib/types.d.ts'].map(path => readFile(join(installedRoot, path), 'utf8')))).join('\n')
+const publicTypesText = (await Promise.all(['lib/src/client.d.ts', 'lib/src/types.d.ts'].map(path => readFile(join(installedRoot, path), 'utf8')))).join('\n')
 if (/\bcallSource\b/u.test(publicTypesText)) process.exit(9)
 console.log(`generic and Harness consumers imported ${installed.name}@${installed.version}`)

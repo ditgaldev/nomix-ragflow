@@ -1,0 +1,1605 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Nomix Business Knowledge Gateway Agent Contract",
+    "version": "0.3.0",
+    "description": "Canonical contract between the Nomix Harness plugin and any business system implementing a Knowledge Gateway. Gateway endpoints and credentials are deployment configuration, not customer-specific constants. It exposes business knowledge resources only; RAGFlow provider details are intentionally absent."
+  },
+  "security": [
+    {
+      "HarnessServiceToken": []
+    }
+  ],
+  "x-nomix-required-headers": [
+    "UserAssertion",
+    "SessionId",
+    "ToolCallId",
+    "RequestId"
+  ],
+  "x-nomix-business-rules": {
+    "authorizationOwner": "business-knowledge-gateway",
+    "identitySource": "dsh-business-identity-session-binding",
+    "providerSelectionOwner": "business-knowledge-gateway",
+    "pageIndex": {
+      "owner": "ragflow",
+      "treeExposure": "none",
+      "tuningExposure": "none"
+    },
+    "lifecycle": {
+      "space": [
+        "CREATING",
+        "ACTIVE",
+        "CREATE_FAILED",
+        "DISABLED",
+        "DELETING",
+        "DELETED",
+        "DELETE_FAILED"
+      ],
+      "document": [
+        "CREATING",
+        "ACTIVE",
+        "CREATE_FAILED",
+        "DISABLED",
+        "DELETING",
+        "DELETED"
+      ],
+      "version": [
+        "CREATED",
+        "UPLOADING",
+        "UPLOADED",
+        "INGESTING",
+        "READY",
+        "FAILED",
+        "CANCELLED",
+        "RETIRED",
+        "DELETED"
+      ],
+      "operation": [
+        "PENDING",
+        "RUNNING",
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELLED"
+      ]
+    },
+    "searchEligibility": {
+      "documentStatus": "ACTIVE",
+      "activeVersionStatus": "READY"
+    },
+    "searchLimits": {
+      "maximumHits": 8,
+      "maximumHitsPerDocument": 4,
+      "maximumHitCodePoints": 2500,
+      "maximumTotalCodePoints": 16000
+    },
+    "citationContext": {
+      "unit": "unicode-code-point",
+      "defaultBefore": 1000,
+      "defaultAfter": 1000,
+      "maximumBefore": 5000,
+      "maximumMatch": 2500,
+      "maximumAfter": 5000,
+      "maximumTotal": 12500
+    },
+    "download": {
+      "activeVersionOnly": true,
+      "fixedExpirySeconds": 60,
+      "binaryTransfer": false
+    },
+    "writeCardinality": "single-resource",
+    "idempotency": "tool-call-derived-header",
+    "automaticRetry": {
+      "owner": "gateway-worker",
+      "sameOperation": true,
+      "maximumAttempts": 5
+    },
+    "manualRetry": {
+      "createsChildOperation": true,
+      "maximumAttempts": 3
+    },
+    "approvalPolicy": {
+      "allow": [
+        "knowledge_space_list",
+        "knowledge_space_get",
+        "knowledge_document_list",
+        "knowledge_document_get",
+        "knowledge_search",
+        "knowledge_source_read",
+        "knowledge_operation_get",
+        "knowledge_document_upload",
+        "knowledge_document_update"
+      ],
+      "ask": [
+        "knowledge_document_download",
+        "knowledge_document_replace",
+        "knowledge_document_enable",
+        "knowledge_document_disable",
+        "knowledge_document_reindex",
+        "knowledge_operation_cancel",
+        "knowledge_operation_retry",
+        "knowledge_space_create",
+        "knowledge_space_update",
+        "knowledge_space_delete",
+        "knowledge_document_delete"
+      ]
+    },
+    "documentDetail": {
+      "versionPointers": [
+        "activeVersion",
+        "candidateVersion"
+      ],
+      "pointerOwner": "gateway",
+      "progress": "provider-or-terminal-only",
+      "searchable": "status=ACTIVE AND activeVersion.status=READY",
+      "retry": "same candidate version, new child operation",
+      "render": "both version slots; null progress is unavailable, not zero"
+    },
+    "httpEnvelope": {
+      "topLevel": [
+        "data",
+        "meta"
+      ],
+      "errors": "meta.error",
+      "pagination": "meta.pagination; page/pageSize; no cursor",
+      "apiVersion": "v1",
+      "protocolError": "KNOWLEDGE_GATEWAY_PROTOCOL_ERROR"
+    },
+    "metadata": {
+      "fields": [
+        "category",
+        "tags",
+        "versionLabel",
+        "productCode"
+      ],
+      "normalization": "NFC then trim; case-sensitive",
+      "maxBytes": 4096,
+      "patch": "omitted=unchanged, null clears strings, [] clears tags",
+      "filter": "AND fields; OR arrays except tagsAll; exact normalized matches",
+      "emptyFilterArrays": "reject; omit a field to leave it unconstrained"
+    },
+    "optimisticLock": {
+      "document": "Detail lockVersion and summary version are the same nonnegative lock counter; pass unchanged as expectedVersion. Not versionNo/versionNumber.",
+      "space": "version and expectedVersion start at 1"
+    },
+    "pagination": "page/pageSize echo the request. totalItems counts visible matching resources; totalPages=ceil(totalItems/pageSize); hasNext=page<totalPages. Empty results use totalPages=0; pages beyond totalPages return empty items. Items cannot exceed pageSize or the remaining total."
+  },
+  "paths": {
+    "/internal/v1/knowledge/spaces": {
+      "get": {
+        "operationId": "knowledgeSpacesList",
+        "x-nomix-tool": "knowledge_space_list",
+        "x-nomix-actions": [
+          "SPACE_VIEW"
+        ],
+        "x-nomix-risk": "read",
+        "x-nomix-approval": "allow",
+        "x-nomix-concurrency": "parallel",
+        "x-nomix-query-schema": "ListSpacesRequest",
+        "x-nomix-tool-schema": "KnowledgeSpaceListToolInput",
+        "responses": {
+          "200": {
+            "description": "Visible knowledge spaces",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeSpaceListResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": true,
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "knowledgeSpaceCreate",
+        "x-nomix-tool": "knowledge_space_create",
+        "x-nomix-actions": [
+          "SPACE_CREATE"
+        ],
+        "x-nomix-risk": "admin",
+        "x-nomix-approval": "ask",
+        "x-nomix-concurrency": "exclusive",
+        "x-nomix-idempotency": "required",
+        "x-nomix-tool-schema": "KnowledgeSpaceCreateToolInput",
+        "responses": {
+          "201": {
+            "description": "Created knowledge space",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeSpaceCreatedResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeSpaceCreateRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserAssertion"
+        },
+        {
+          "$ref": "#/components/parameters/SessionId"
+        },
+        {
+          "$ref": "#/components/parameters/ToolCallId"
+        },
+        {
+          "$ref": "#/components/parameters/RequestId"
+        }
+      ]
+    },
+    "/internal/v1/knowledge/spaces/{spaceId}": {
+      "get": {
+        "operationId": "knowledgeSpaceGet",
+        "x-nomix-tool": "knowledge_space_get",
+        "x-nomix-actions": [
+          "SPACE_VIEW"
+        ],
+        "x-nomix-risk": "read",
+        "x-nomix-approval": "allow",
+        "x-nomix-concurrency": "parallel",
+        "x-nomix-tool-schema": "KnowledgeSpaceGetToolInput",
+        "responses": {
+          "200": {
+            "description": "Visible knowledge space",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeSpaceResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": true
+      },
+      "patch": {
+        "operationId": "knowledgeSpaceUpdate",
+        "x-nomix-tool": "knowledge_space_update",
+        "x-nomix-actions": [
+          "SPACE_UPDATE"
+        ],
+        "x-nomix-risk": "admin",
+        "x-nomix-approval": "ask",
+        "x-nomix-concurrency": "exclusive",
+        "x-nomix-idempotency": "required",
+        "x-nomix-tool-schema": "KnowledgeSpaceUpdateToolInput",
+        "responses": {
+          "200": {
+            "description": "Updated knowledge space",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeSpaceUpdatedResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeSpaceUpdateRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserAssertion"
+        },
+        {
+          "$ref": "#/components/parameters/SessionId"
+        },
+        {
+          "$ref": "#/components/parameters/ToolCallId"
+        },
+        {
+          "$ref": "#/components/parameters/RequestId"
+        },
+        {
+          "name": "spaceId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/BusinessId"
+          }
+        }
+      ]
+    },
+    "/internal/v1/knowledge/spaces/{spaceId}:delete": {
+      "post": {
+        "operationId": "knowledgeSpaceDelete",
+        "x-nomix-tool": "knowledge_space_delete",
+        "x-nomix-actions": [
+          "SPACE_DELETE"
+        ],
+        "x-nomix-risk": "admin",
+        "x-nomix-approval": "ask",
+        "x-nomix-concurrency": "exclusive",
+        "x-nomix-idempotency": "required",
+        "x-nomix-tool-schema": "KnowledgeSpaceDeleteToolInput",
+        "responses": {
+          "202": {
+            "description": "Space deletion accepted after empty/pending checks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpaceOperationAcceptedResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteResourceRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserAssertion"
+        },
+        {
+          "$ref": "#/components/parameters/SessionId"
+        },
+        {
+          "$ref": "#/components/parameters/ToolCallId"
+        },
+        {
+          "$ref": "#/components/parameters/RequestId"
+        },
+        {
+          "name": "spaceId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/BusinessId"
+          }
+        }
+      ]
+    },
+    "/internal/v1/knowledge/spaces/{spaceId}/documents": {
+      "get": {
+        "operationId": "knowledgeDocumentsList",
+        "x-nomix-tool": "knowledge_document_list",
+        "x-nomix-actions": [
+          "DOCUMENT_VIEW"
+        ],
+        "x-nomix-risk": "read",
+        "x-nomix-approval": "allow",
+        "x-nomix-concurrency": "parallel",
+        "x-nomix-query-schema": "ListDocumentsRequest",
+        "x-nomix-tool-schema": "KnowledgeDocumentListToolInput",
+        "responses": {
+          "200": {
+            "description": "Visible documents in the space",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDocumentListResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": true,
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "knowledgeDocumentUpload",
+        "x-nomix-tool": "knowledge_document_upload",
+        "x-nomix-actions": [
+          "DOCUMENT_UPLOAD"
+        ],
+        "x-nomix-risk": "write",
+        "x-nomix-approval": "allow",
+        "x-nomix-concurrency": "exclusive",
+        "x-nomix-idempotency": "required",
+        "x-nomix-tool-schema": "KnowledgeDocumentUploadToolInput",
+        "responses": {
+          "202": {
+            "description": "Document ingestion accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentOperationAcceptedResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeDocumentUploadRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserAssertion"
+        },
+        {
+          "$ref": "#/components/parameters/SessionId"
+        },
+        {
+          "$ref": "#/components/parameters/ToolCallId"
+        },
+        {
+          "$ref": "#/components/parameters/RequestId"
+        },
+        {
+          "name": "spaceId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/BusinessId"
+          }
+        }
+      ]
+    },
+    "/internal/v1/knowledge/documents/{documentId}": {
+      "get": {
+        "operationId": "knowledgeDocumentGet",
+        "x-nomix-tool": "knowledge_document_get",
+        "x-nomix-actions": [
+          "DOCUMENT_VIEW"
+        ],
+        "x-nomix-risk": "read",
+        "x-nomix-approval": "allow",
+        "x-nomix-concurrency": "parallel",
+        "x-nomix-tool-schema": "KnowledgeDocumentGetToolInput",
+        "responses": {
+          "200": {
+            "description": "Visible document and active version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDocumentDetailResponse"
+                },
+                "examples": {
+                  "activeAndCandidate": {
+                    "summary": "Complete document detail with both version slots; every required version field is included.",
+                    "value": {
+                      "data": {
+                        "documentId": "document-1",
+                        "spaceId": "space-1",
+                        "name": "制度",
+                        "status": "ACTIVE",
+                        "searchable": true,
+                        "metadata": {
+                          "category": null,
+                          "tags": [],
+                          "versionLabel": null,
+                          "productCode": null
+                        },
+                        "lockVersion": 0,
+                        "activeVersion": {
+                          "versionId": "version-1",
+                          "versionNo": 1,
+                          "changeType": "INITIAL_UPLOAD",
+                          "status": "READY",
+                          "fileName": "制度.pdf",
+                          "mimeType": "application/pdf",
+                          "fileSize": 1024,
+                          "operationId": "operation-1",
+                          "operationStatus": "SUCCEEDED",
+                          "progressPercent": 100,
+                          "progressSource": "TERMINAL_STATE",
+                          "progressUpdatedAt": "2026-09-05T00:00:00Z",
+                          "retryable": false,
+                          "error": null,
+                          "createdAt": "2026-09-05T00:00:00Z",
+                          "processingStartedAt": "2026-09-05T00:00:00Z",
+                          "readyAt": "2026-09-05T00:00:00Z",
+                          "activatedAt": "2026-09-05T00:00:00Z",
+                          "failedAt": null,
+                          "cancelledAt": null
+                        },
+                        "candidateVersion": {
+                          "versionId": "version-2",
+                          "versionNo": 2,
+                          "changeType": "REPLACE",
+                          "status": "INGESTING",
+                          "fileName": "制度.pdf",
+                          "mimeType": "application/pdf",
+                          "fileSize": 1024,
+                          "operationId": "operation-2",
+                          "operationStatus": "RUNNING",
+                          "progressPercent": null,
+                          "progressSource": "UNAVAILABLE",
+                          "progressUpdatedAt": null,
+                          "retryable": false,
+                          "error": null,
+                          "createdAt": "2026-09-05T00:00:00Z",
+                          "processingStartedAt": "2026-09-05T00:00:00Z",
+                          "readyAt": null,
+                          "activatedAt": null,
+                          "failedAt": null,
+                          "cancelledAt": null
+                        },
+                        "createdAt": "2026-09-05T00:00:00Z",
+                        "updatedAt": "2026-09-05T00:00:00Z"
+                      },
+                      "meta": {
+                        "success": true,
+                        "requestId": "request-example",
+                        "traceId": "trace-example",
+                        "timestamp": "2026-09-05T00:00:00Z",
+                        "apiVersion": "v1",
+                        "pagination": null,
+                        "error": null
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": true
+      },
+      "patch": {
+        "operationId": "knowledgeDocumentUpdate",
+        "x-nomix-tool": "knowledge_document_update",
+        "x-nomix-actions": [
+          "DOCUMENT_UPDATE"
+        ],
+        "x-nomix-risk": "write",
+        "x-nomix-approval": "allow",
+        "x-nomix-concurrency": "exclusive",
+        "x-nomix-idempotency": "required",
+        "x-nomix-tool-schema": "KnowledgeDocumentUpdateToolInput",
+        "responses": {
+          "200": {
+            "description": "Updated document metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDocumentResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeDocumentUpdateRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserAssertion"
+        },
+        {
+          "$ref": "#/components/parameters/SessionId"
+        },
+        {
+          "$ref": "#/components/parameters/ToolCallId"
+        },
+        {
+          "$ref": "#/components/parameters/RequestId"
+        },
+        {
+          "name": "documentId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/BusinessId"
+          }
+        }
+      ]
+    },
+    "/internal/v1/knowledge/documents/{documentId}:replace": {
+      "post": {
+        "operationId": "knowledgeDocumentReplace",
+        "x-nomix-tool": "knowledge_document_replace",
+        "x-nomix-actions": [
+          "DOCUMENT_UPDATE"
+        ],
+        "x-nomix-risk": "write",
+        "x-nomix-approval": "ask",
+        "x-nomix-concurrency": "exclusive",
+        "x-nomix-idempotency": "required",
+        "x-nomix-tool-schema": "KnowledgeDocumentReplaceToolInput",
+        "responses": {
+          "202": {
+            "description": "Replacement version ingestion accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentOperationAcceptedResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeDocumentReplaceRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserAssertion"
+        },
+        {
+          "$ref": "#/components/parameters/SessionId"
+        },
+        {
+          "$ref": "#/components/parameters/ToolCallId"
+        },
+        {
+          "$ref": "#/components/parameters/RequestId"
+        },
+        {
+          "name": "documentId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/BusinessId"
+          }
+        }
+      ]
+    },
+    "/internal/v1/knowledge/documents/{documentId}:enable": {
+      "post": {
+        "operationId": "knowledgeDocumentEnable",
+        "x-nomix-tool": "knowledge_document_enable",
+        "x-nomix-actions": [
+          "DOCUMENT_UPDATE"
+        ],
+        "x-nomix-risk": "write",
+        "x-nomix-approval": "ask",
+        "x-nomix-concurrency": "exclusive",
+        "x-nomix-idempotency": "required",
+        "x-nomix-tool-schema": "KnowledgeDocumentEnableToolInput",
+        "responses": {
+          "200": {
+            "description": "Enabled document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDocumentResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionedResourceRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserAssertion"
+        },
+        {
+          "$ref": "#/components/parameters/SessionId"
+        },
+        {
+          "$ref": "#/components/parameters/ToolCallId"
+        },
+        {
+          "$ref": "#/components/parameters/RequestId"
+        },
+        {
+          "name": "documentId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/BusinessId"
+          }
+        }
+      ]
+    },
+    "/internal/v1/knowledge/documents/{documentId}:disable": {
+      "post": {
+        "operationId": "knowledgeDocumentDisable",
+        "x-nomix-tool": "knowledge_document_disable",
+        "x-nomix-actions": [
+          "DOCUMENT_UPDATE"
+        ],
+        "x-nomix-risk": "write",
+        "x-nomix-approval": "ask",
+        "x-nomix-concurrency": "exclusive",
+        "x-nomix-idempotency": "required",
+        "x-nomix-tool-schema": "KnowledgeDocumentDisableToolInput",
+        "responses": {
+          "200": {
+            "description": "Disabled document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDocumentResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionedResourceRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserAssertion"
+        },
+        {
+          "$ref": "#/components/parameters/SessionId"
+        },
+        {
+          "$ref": "#/components/parameters/ToolCallId"
+        },
+        {
+          "$ref": "#/components/parameters/RequestId"
+        },
+        {
+          "name": "documentId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/BusinessId"
+          }
+        }
+      ]
+    },
+    "/internal/v1/knowledge/documents/{documentId}:reindex": {
+      "post": {
+        "operationId": "knowledgeDocumentReindex",
+        "x-nomix-tool": "knowledge_document_reindex",
+        "x-nomix-actions": [
+          "DOCUMENT_REINDEX"
+        ],
+        "x-nomix-risk": "write",
+        "x-nomix-approval": "ask",
+        "x-nomix-concurrency": "exclusive",
+        "x-nomix-idempotency": "required",
+        "x-nomix-tool-schema": "KnowledgeDocumentReindexToolInput",
+        "responses": {
+          "202": {
+            "description": "Reindex operation accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentOperationAcceptedResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionedResourceRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserAssertion"
+        },
+        {
+          "$ref": "#/components/parameters/SessionId"
+        },
+        {
+          "$ref": "#/components/parameters/ToolCallId"
+        },
+        {
+          "$ref": "#/components/parameters/RequestId"
+        },
+        {
+          "name": "documentId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/BusinessId"
+          }
+        }
+      ]
+    },
+    "/internal/v1/knowledge/documents/{documentId}:delete": {
+      "post": {
+        "operationId": "knowledgeDocumentDelete",
+        "x-nomix-tool": "knowledge_document_delete",
+        "x-nomix-actions": [
+          "DOCUMENT_DELETE"
+        ],
+        "x-nomix-risk": "admin",
+        "x-nomix-approval": "ask",
+        "x-nomix-concurrency": "exclusive",
+        "x-nomix-idempotency": "required",
+        "x-nomix-tool-schema": "KnowledgeDocumentDeleteToolInput",
+        "responses": {
+          "202": {
+            "description": "Document deletion accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentOperationAcceptedResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentDeleteRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserAssertion"
+        },
+        {
+          "$ref": "#/components/parameters/SessionId"
+        },
+        {
+          "$ref": "#/components/parameters/ToolCallId"
+        },
+        {
+          "$ref": "#/components/parameters/RequestId"
+        },
+        {
+          "name": "documentId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/BusinessId"
+          }
+        }
+      ]
+    },
+    "/internal/v1/knowledge/documents/{documentId}:create-download-link": {
+      "post": {
+        "operationId": "knowledgeDocumentCreateDownloadLink",
+        "x-nomix-tool": "knowledge_document_download",
+        "x-nomix-actions": [
+          "DOCUMENT_DOWNLOAD"
+        ],
+        "x-nomix-risk": "read",
+        "x-nomix-approval": "ask",
+        "x-nomix-concurrency": "parallel",
+        "x-nomix-tool-schema": "KnowledgeDocumentDownloadToolInput",
+        "responses": {
+          "200": {
+            "description": "Sixty-second link for the active version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadLinkResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyRequest"
+              }
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserAssertion"
+        },
+        {
+          "$ref": "#/components/parameters/SessionId"
+        },
+        {
+          "$ref": "#/components/parameters/ToolCallId"
+        },
+        {
+          "$ref": "#/components/parameters/RequestId"
+        },
+        {
+          "name": "documentId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/BusinessId"
+          }
+        }
+      ]
+    },
+    "/internal/v1/knowledge/search": {
+      "post": {
+        "operationId": "knowledgeSearch",
+        "x-nomix-tool": "knowledge_search",
+        "x-nomix-actions": [
+          "KNOWLEDGE_SEARCH"
+        ],
+        "x-nomix-risk": "read",
+        "x-nomix-approval": "allow",
+        "x-nomix-concurrency": "parallel",
+        "x-nomix-tool-schema": "KnowledgeSearchToolInput",
+        "responses": {
+          "200": {
+            "description": "Bounded, authorized knowledge evidence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetrievalResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetrievalRequest"
+              }
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserAssertion"
+        },
+        {
+          "$ref": "#/components/parameters/SessionId"
+        },
+        {
+          "$ref": "#/components/parameters/ToolCallId"
+        },
+        {
+          "$ref": "#/components/parameters/RequestId"
+        }
+      ]
+    },
+    "/internal/v1/knowledge/citations/{citationId}": {
+      "get": {
+        "operationId": "knowledgeCitationRead",
+        "x-nomix-tool": "knowledge_source_read",
+        "x-nomix-actions": [
+          "DOCUMENT_VIEW"
+        ],
+        "x-nomix-risk": "read",
+        "x-nomix-approval": "allow",
+        "x-nomix-concurrency": "parallel",
+        "x-nomix-query-schema": "CitationContextRequest",
+        "x-nomix-tool-schema": "KnowledgeSourceReadToolInput",
+        "responses": {
+          "200": {
+            "description": "Re-authorized normalized-document source context",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CitationSourceResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": true,
+        "parameters": [
+          {
+            "name": "contextBefore",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5000,
+              "default": 1000,
+              "description": "Unicode code points before the match in the normalized document."
+            }
+          },
+          {
+            "name": "contextAfter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5000,
+              "default": 1000,
+              "description": "Unicode code points after the match in the normalized document."
+            }
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserAssertion"
+        },
+        {
+          "$ref": "#/components/parameters/SessionId"
+        },
+        {
+          "$ref": "#/components/parameters/ToolCallId"
+        },
+        {
+          "$ref": "#/components/parameters/RequestId"
+        },
+        {
+          "name": "citationId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/BusinessId"
+          }
+        }
+      ]
+    },
+    "/internal/v1/knowledge/operations/{operationId}": {
+      "get": {
+        "operationId": "knowledgeOperationGet",
+        "x-nomix-tool": "knowledge_operation_get",
+        "x-nomix-actions": [
+          "RESOURCE_VIEW"
+        ],
+        "x-nomix-risk": "read",
+        "x-nomix-approval": "allow",
+        "x-nomix-concurrency": "parallel",
+        "x-nomix-tool-schema": "KnowledgeOperationGetToolInput",
+        "responses": {
+          "200": {
+            "description": "Authorized operation state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": true
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserAssertion"
+        },
+        {
+          "$ref": "#/components/parameters/SessionId"
+        },
+        {
+          "$ref": "#/components/parameters/ToolCallId"
+        },
+        {
+          "$ref": "#/components/parameters/RequestId"
+        },
+        {
+          "name": "operationId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/BusinessId"
+          }
+        }
+      ]
+    },
+    "/internal/v1/knowledge/operations/{operationId}:cancel": {
+      "post": {
+        "operationId": "knowledgeOperationCancel",
+        "x-nomix-tool": "knowledge_operation_cancel",
+        "x-nomix-actions": [
+          "ORIGINAL_OPERATION_PERMISSION"
+        ],
+        "x-nomix-risk": "write",
+        "x-nomix-approval": "ask",
+        "x-nomix-concurrency": "exclusive",
+        "x-nomix-idempotency": "required",
+        "x-nomix-tool-schema": "KnowledgeOperationCancelToolInput",
+        "responses": {
+          "200": {
+            "description": "Operation cancellation state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationReasonRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserAssertion"
+        },
+        {
+          "$ref": "#/components/parameters/SessionId"
+        },
+        {
+          "$ref": "#/components/parameters/ToolCallId"
+        },
+        {
+          "$ref": "#/components/parameters/RequestId"
+        },
+        {
+          "name": "operationId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/BusinessId"
+          }
+        }
+      ]
+    },
+    "/internal/v1/knowledge/operations/{operationId}:retry": {
+      "post": {
+        "operationId": "knowledgeOperationRetry",
+        "x-nomix-tool": "knowledge_operation_retry",
+        "x-nomix-actions": [
+          "ORIGINAL_OPERATION_PERMISSION",
+          "OPERATION_RETRY"
+        ],
+        "x-nomix-risk": "write",
+        "x-nomix-approval": "ask",
+        "x-nomix-concurrency": "exclusive",
+        "x-nomix-idempotency": "required",
+        "x-nomix-tool-schema": "KnowledgeOperationRetryToolInput",
+        "responses": {
+          "202": {
+            "description": "Child retry operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualRetryOperationResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BusinessError"
+          }
+        },
+        "x-nomix-retry-safe": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationReasonRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserAssertion"
+        },
+        {
+          "$ref": "#/components/parameters/SessionId"
+        },
+        {
+          "$ref": "#/components/parameters/ToolCallId"
+        },
+        {
+          "$ref": "#/components/parameters/RequestId"
+        },
+        {
+          "name": "operationId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/BusinessId"
+          }
+        }
+      ]
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "HarnessServiceToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "service-token",
+        "description": "Harness service identity; never an end-user credential."
+      }
+    },
+    "parameters": {
+      "UserAssertion": {
+        "name": "X-User-Assertion",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        }
+      },
+      "SessionId": {
+        "name": "X-Harness-Session-Id",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "ToolCallId": {
+        "name": "X-Tool-Call-Id",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "RequestId": {
+        "name": "X-Request-Id",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "responses": {
+      "BusinessError": {
+        "description": "Stable business error without provider internals",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "KnowledgeSpacePage": {"type":"object","additionalProperties":false,"required":["items","pagination"],"properties":{"items":{"type":"array","maxItems":20,"items":{"$ref":"#/components/schemas/KnowledgeSpace"}},"pagination":{"$ref":"#/components/schemas/PaginationMeta"}}},
+      "KnowledgeDocumentPage": {"type":"object","additionalProperties":false,"required":["items","pagination"],"properties":{"items":{"type":"array","maxItems":20,"items":{"$ref":"#/components/schemas/KnowledgeDocument"}},"pagination":{"$ref":"#/components/schemas/PaginationMeta"}}},
+      "BusinessId": {"type":"string","minLength":1,"maxLength":256,"pattern":"^[^\\s]+$"},
+      "Reason": {"type":"string","minLength":1,"maxLength":1024},
+      "SpaceStatus": {"type":"string","enum":["CREATING","ACTIVE","CREATE_FAILED","DISABLED","DELETING","DELETED","DELETE_FAILED"]},
+      "DocumentStatus": {"type":"string","enum":["CREATING","ACTIVE","CREATE_FAILED","DISABLED","DELETING","DELETED"]},
+      "VersionStatus": {"type":"string","enum":["CREATED","UPLOADING","UPLOADED","INGESTING","READY","FAILED","CANCELLED","RETIRED","DELETED"]},
+      "OperationStatus": {"type":"string","enum":["PENDING","RUNNING","SUCCEEDED","FAILED","CANCELLED"]},
+      "KnowledgeOperationType": {"type":"string","enum":["SPACE_CREATE","SPACE_UPDATE","SPACE_DELETE","DOCUMENT_UPLOAD","DOCUMENT_UPDATE","DOCUMENT_REPLACE","DOCUMENT_ENABLE","DOCUMENT_DISABLE","DOCUMENT_REINDEX","DOCUMENT_DELETE","OPERATION_CANCEL","OPERATION_RETRY"]},
+      "KnowledgeFailureCode": {"type":"string","enum":["KNOWLEDGE_UNAUTHENTICATED","KNOWLEDGE_FORBIDDEN","KNOWLEDGE_NOT_FOUND","KNOWLEDGE_CONFLICT","KNOWLEDGE_OPERATION_PENDING","KNOWLEDGE_PROVIDER_UNAVAILABLE","KNOWLEDGE_INVALID_INPUT"]},
+      "LocationPrecision": {"type":"string","enum":["EXACT_OFFSET","CHUNK_APPROXIMATE"]},
+      "KnowledgeProfileCode": {"type":"string","const":"enterprise-long-document"},
+      "SuccessMeta": {"type":"object","additionalProperties":false,"required":["success","requestId","traceId","timestamp","apiVersion","pagination","error"],"properties":{"success":{"type":"boolean","const":true},"requestId":{"type":"string","minLength":1,"maxLength":128},"traceId":{"type":"string","minLength":1,"maxLength":128},"timestamp":{"type":"string","format":"date-time","pattern":"Z$"},"apiVersion":{"type":"string","const":"v1"},"pagination":{"type":"null"},"error":{"type":"null"}}},
+      "DocumentMetadata": {"type":"object","additionalProperties":false,"required":[],"properties":{"category":{"$ref":"#/components/schemas/MetadataText"},"tags":{"type":"array","maxItems":20,"uniqueItems":true,"items":{"$ref":"#/components/schemas/MetadataTag"}},"versionLabel":{"$ref":"#/components/schemas/MetadataText"},"productCode":{"$ref":"#/components/schemas/MetadataText"}}},
+      "ListSpacesRequest": {"type":"object","additionalProperties":false,"required":[],"properties":{"page":{"type":"integer","minimum":1,"default":1},"pageSize":{"type":"integer","minimum":1,"maximum":100,"default":20}}},
+      "ListDocumentsRequest": {"type":"object","additionalProperties":false,"required":[],"properties":{"page":{"type":"integer","minimum":1,"default":1},"pageSize":{"type":"integer","minimum":1,"maximum":100,"default":20}}},
+      "CitationContextRequest": {"type":"object","additionalProperties":false,"properties":{"contextBefore":{"type":"integer","minimum":0,"maximum":5000,"default":1000,"description":"Unicode code points before the match in the normalized document."},"contextAfter":{"type":"integer","minimum":0,"maximum":5000,"default":1000,"description":"Unicode code points after the match in the normalized document."}}},
+      "RetrievalRequest": {"type":"object","additionalProperties":false,"required":["query"],"properties":{"query":{"type":"string","minLength":1,"maxLength":4096},"knowledgeSpaceIds":{"type":"array","minItems":1,"maxItems":20,"uniqueItems":true,"items":{"$ref":"#/components/schemas/BusinessId"}},"documentIds":{"type":"array","minItems":0,"maxItems":20,"uniqueItems":true,"items":{"$ref":"#/components/schemas/BusinessId"}},"limit":{"type":"integer","minimum":1,"maximum":8,"default":8},"metadataFilter":{"$ref":"#/components/schemas/MetadataFilter"}}},
+      "KnowledgeSpaceCreateRequest": {"type":"object","additionalProperties":false,"required":["code","name","profileCode","defaultSecurityDomainCode"],"properties":{"code":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[^\\s]+$"},"name":{"type":"string","minLength":1,"maxLength":128},"description":{"type":"string","maxLength":1000},"profileCode":{"$ref":"#/components/schemas/KnowledgeProfileCode"},"defaultSecurityDomainCode":{"type":"string","minLength":1,"maxLength":100,"pattern":"^[^\\s]+$"}}},
+      "KnowledgeSpaceUpdateRequest": {"type":"object","additionalProperties":false,"required":["expectedVersion"],"properties":{"name":{"type":"string","minLength":1,"maxLength":128},"description":{"type":"string","maxLength":1000},"expectedVersion":{"type":"integer","minimum":1}}},
+      "KnowledgeDocumentUploadRequest": {"type":"object","additionalProperties":false,"required":["fileResourceId","documentName"],"properties":{"fileResourceId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[^\\s]+$"},"documentName":{"type":"string","minLength":1,"maxLength":255},"metadata":{"$ref":"#/components/schemas/DocumentMetadata"}}},
+      "KnowledgeDocumentUpdateRequest": {"type":"object","additionalProperties":false,"required":["expectedVersion"],"properties":{"name":{"type":"string","minLength":1,"maxLength":255},"metadata":{"$ref":"#/components/schemas/DocumentMetadataPatch"},"expectedVersion":{"type":"integer","minimum":0,"description":"Use the document detail lockVersion (or summary version), including zero."}},"examples":[{"expectedVersion":0,"metadata":{"category":"company-policy","versionLabel":null,"tags":[]}}]},
+      "KnowledgeDocumentReplaceRequest": {"type":"object","additionalProperties":false,"required":["fileResourceId","expectedVersion"],"properties":{"fileResourceId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[^\\s]+$"},"expectedVersion":{"type":"integer","minimum":0,"description":"Use the document detail lockVersion (or summary version), including zero."},"reason":{"$ref":"#/components/schemas/Reason"}}},
+      "VersionedResourceRequest": {"type":"object","additionalProperties":false,"required":["expectedVersion"],"properties":{"expectedVersion":{"type":"integer","minimum":0},"reason":{"$ref":"#/components/schemas/Reason"}}},
+      "DeleteResourceRequest": {"type":"object","additionalProperties":false,"required":["expectedVersion","reason"],"properties":{"expectedVersion":{"type":"integer","minimum":1},"reason":{"$ref":"#/components/schemas/Reason"}}},
+      "OperationReasonRequest": {"type":"object","additionalProperties":false,"required":["reason"],"properties":{"reason":{"$ref":"#/components/schemas/Reason"}}},
+      "EmptyRequest": {"type":"object","additionalProperties":false,"properties":{}},
+      "KnowledgeSearchToolInput": {"$ref":"#/components/schemas/RetrievalRequest"},
+      "KnowledgeSpaceListToolInput": {"$ref":"#/components/schemas/ListSpacesRequest"},
+      "KnowledgeSpaceGetToolInput": {"type":"object","additionalProperties":false,"required":["knowledgeSpaceId"],"properties":{"knowledgeSpaceId":{"$ref":"#/components/schemas/BusinessId"}}},
+      "KnowledgeSpaceCreateToolInput": {"$ref":"#/components/schemas/KnowledgeSpaceCreateRequest"},
+      "KnowledgeSpaceUpdateToolInput": {"type":"object","additionalProperties":false,"required":["knowledgeSpaceId","expectedVersion"],"properties":{"knowledgeSpaceId":{"$ref":"#/components/schemas/BusinessId"},"name":{"type":"string","minLength":1,"maxLength":128},"description":{"type":"string","maxLength":1000},"expectedVersion":{"type":"integer","minimum":1}}},
+      "KnowledgeSpaceDeleteToolInput": {"type":"object","additionalProperties":false,"required":["knowledgeSpaceId","expectedVersion","reason"],"properties":{"knowledgeSpaceId":{"$ref":"#/components/schemas/BusinessId"},"expectedVersion":{"type":"integer","minimum":1},"reason":{"$ref":"#/components/schemas/Reason"}}},
+      "KnowledgeDocumentListToolInput": {"type":"object","additionalProperties":false,"required":["knowledgeSpaceId"],"properties":{"knowledgeSpaceId":{"$ref":"#/components/schemas/BusinessId"},"page":{"type":"integer","minimum":1,"default":1},"pageSize":{"type":"integer","minimum":1,"maximum":100,"default":20}}},
+      "KnowledgeDocumentGetToolInput": {"type":"object","additionalProperties":false,"required":["documentId"],"properties":{"documentId":{"$ref":"#/components/schemas/BusinessId"}}},
+      "KnowledgeDocumentUploadToolInput": {"type":"object","additionalProperties":false,"required":["knowledgeSpaceId","fileResourceId","documentName"],"properties":{"knowledgeSpaceId":{"$ref":"#/components/schemas/BusinessId"},"fileResourceId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[^\\s]+$"},"documentName":{"type":"string","minLength":1,"maxLength":255},"metadata":{"$ref":"#/components/schemas/DocumentMetadata"}}},
+      "KnowledgeDocumentUpdateToolInput": {"type":"object","additionalProperties":false,"required":["documentId","expectedVersion"],"properties":{"documentId":{"$ref":"#/components/schemas/BusinessId"},"name":{"type":"string","minLength":1,"maxLength":255},"metadata":{"$ref":"#/components/schemas/DocumentMetadataPatch"},"expectedVersion":{"type":"integer","minimum":0,"description":"Use the document detail lockVersion (or summary version), including zero."}}},
+      "KnowledgeDocumentReplaceToolInput": {"type":"object","additionalProperties":false,"required":["documentId","fileResourceId","expectedVersion"],"properties":{"documentId":{"$ref":"#/components/schemas/BusinessId"},"fileResourceId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[^\\s]+$"},"expectedVersion":{"type":"integer","minimum":0,"description":"Use the document detail lockVersion (or summary version), including zero."},"reason":{"$ref":"#/components/schemas/Reason"}}},
+      "KnowledgeDocumentEnableToolInput": {"type":"object","additionalProperties":false,"required":["documentId","expectedVersion"],"properties":{"documentId":{"$ref":"#/components/schemas/BusinessId"},"expectedVersion":{"type":"integer","minimum":0,"description":"Use the document detail lockVersion (or summary version), including zero."},"reason":{"$ref":"#/components/schemas/Reason"}}},
+      "KnowledgeDocumentDisableToolInput": {"$ref":"#/components/schemas/KnowledgeDocumentEnableToolInput"},
+      "KnowledgeDocumentReindexToolInput": {"$ref":"#/components/schemas/KnowledgeDocumentEnableToolInput"},
+      "KnowledgeDocumentDeleteToolInput": {"type":"object","additionalProperties":false,"required":["documentId","expectedVersion","reason"],"properties":{"documentId":{"$ref":"#/components/schemas/BusinessId"},"expectedVersion":{"type":"integer","minimum":0,"description":"Use the document detail lockVersion (or summary version), including zero."},"reason":{"$ref":"#/components/schemas/Reason"}}},
+      "KnowledgeDocumentDownloadToolInput": {"$ref":"#/components/schemas/KnowledgeDocumentGetToolInput"},
+      "KnowledgeSourceReadToolInput": {"type":"object","additionalProperties":false,"required":["citationId"],"properties":{"citationId":{"$ref":"#/components/schemas/BusinessId"},"contextBefore":{"type":"integer","minimum":0,"maximum":5000,"default":1000},"contextAfter":{"type":"integer","minimum":0,"maximum":5000,"default":1000}}},
+      "KnowledgeOperationGetToolInput": {"type":"object","additionalProperties":false,"required":["operationId"],"properties":{"operationId":{"$ref":"#/components/schemas/BusinessId"}}},
+      "KnowledgeOperationCancelToolInput": {"type":"object","additionalProperties":false,"required":["operationId","reason"],"properties":{"operationId":{"$ref":"#/components/schemas/BusinessId"},"reason":{"$ref":"#/components/schemas/Reason"}}},
+      "KnowledgeOperationRetryToolInput": {"$ref":"#/components/schemas/KnowledgeOperationCancelToolInput"},
+      "KnowledgeSpace": {"type":"object","additionalProperties":false,"required":["spaceId","code","name","status","version"],"properties":{"spaceId":{"$ref":"#/components/schemas/BusinessId"},"code":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[^\\s]+$"},"name":{"type":"string","maxLength":128},"description":{"type":"string","maxLength":1000},"profileCode":{"$ref":"#/components/schemas/KnowledgeProfileCode"},"defaultSecurityDomainCode":{"type":"string","minLength":1,"maxLength":100,"pattern":"^[^\\s]+$"},"status":{"$ref":"#/components/schemas/SpaceStatus"},"version":{"type":"integer","minimum":1}}},
+      "KnowledgeSpaceCreated": {"type":"object","additionalProperties":false,"required":["spaceId","code","name","status","version"],"properties":{"spaceId":{"$ref":"#/components/schemas/BusinessId"},"code":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[^\\s]+$"},"name":{"type":"string","maxLength":128},"status":{"$ref":"#/components/schemas/SpaceStatus"},"version":{"type":"integer","minimum":1}}},
+      "KnowledgeSpaceList": {"type":"object","additionalProperties":false,"required":["items"],"properties":{"items":{"type":"array","maxItems":20,"items":{"$ref":"#/components/schemas/KnowledgeSpace"}}}},
+      "KnowledgeDocumentVersion": {"type":"object","additionalProperties":false,"required":["versionId","versionNumber","status","fileName","mimeType","fileSize"],"properties":{"versionId":{"$ref":"#/components/schemas/BusinessId"},"versionNumber":{"type":"integer","minimum":1},"status":{"$ref":"#/components/schemas/VersionStatus"},"fileName":{"type":"string","maxLength":1024},"mimeType":{"type":"string","maxLength":256},"fileSize":{"type":"integer","minimum":0},"failureCode":{"$ref":"#/components/schemas/KnowledgeFailureCode"}}},
+      "KnowledgeDocument": {"type":"object","additionalProperties":false,"required":["documentId","knowledgeSpaceId","name","status","version","activeVersion","metadata"],"properties":{"documentId":{"$ref":"#/components/schemas/BusinessId"},"knowledgeSpaceId":{"$ref":"#/components/schemas/BusinessId"},"name":{"type":"string","maxLength":255},"status":{"$ref":"#/components/schemas/DocumentStatus"},"version":{"type":"integer","minimum":0},"metadata":{"$ref":"#/components/schemas/DocumentMetadataOutput"},"activeVersion":{"oneOf":[{"$ref":"#/components/schemas/KnowledgeDocumentVersion"},{"type":"null"}]}}},
+      "KnowledgeDocumentList": {"type":"object","additionalProperties":false,"required":["items"],"properties":{"items":{"type":"array","maxItems":20,"items":{"$ref":"#/components/schemas/KnowledgeDocument"}}}},
+      "RetrievalHit": {"type":"object","additionalProperties":false,"required":["citationId","documentId","documentName","chapterPath","content","score","metadata"],"properties":{"citationId":{"$ref":"#/components/schemas/BusinessId"},"documentId":{"$ref":"#/components/schemas/BusinessId"},"documentName":{"type":"string","maxLength":255},"chapterPath":{"type":"array","maxItems":20,"items":{"type":"string","maxLength":512}},"content":{"type":"string","maxLength":2500},"score":{"type":"number","minimum":0,"maximum":1},"locationPrecision":{"$ref":"#/components/schemas/LocationPrecision"},"page":{"type":"integer","minimum":1},"metadata":{"$ref":"#/components/schemas/DocumentMetadataOutput"}}},
+      "RetrievalResult": {"oneOf":[{"$ref":"#/components/schemas/RetrievalMatches"},{"$ref":"#/components/schemas/RetrievalEmpty"}]},
+      "CitationSource": {"type":"object","additionalProperties":false,"required":["citationId","documentId","versionId","documentName","beforeContent","matchedContent","afterContent","requestedContextBefore","requestedContextAfter","actualContextBefore","actualContextAfter","matchedContentTruncated","locationPrecision"],"properties":{"citationId":{"$ref":"#/components/schemas/BusinessId"},"documentId":{"$ref":"#/components/schemas/BusinessId"},"versionId":{"$ref":"#/components/schemas/BusinessId"},"documentName":{"type":"string","maxLength":255},"chapterPath":{"type":"array","maxItems":20,"items":{"type":"string","maxLength":512}},"pageStart":{"type":"integer","minimum":1},"pageEnd":{"type":"integer","minimum":1},"beforeContent":{"type":"string","maxLength":5000},"matchedContent":{"type":"string","maxLength":2500},"afterContent":{"type":"string","maxLength":5000},"requestedContextBefore":{"type":"integer","minimum":0,"maximum":5000},"requestedContextAfter":{"type":"integer","minimum":0,"maximum":5000},"actualContextBefore":{"type":"integer","minimum":0,"maximum":5000},"actualContextAfter":{"type":"integer","minimum":0,"maximum":5000},"matchedContentTruncated":{"type":"boolean"},"locationPrecision":{"$ref":"#/components/schemas/LocationPrecision"}}},
+      "DownloadLink": {"type":"object","additionalProperties":false,"required":["documentId","versionId","fileName","mimeType","fileSize","downloadUrl","expiresAt","expiresInSeconds"],"properties":{"documentId":{"$ref":"#/components/schemas/BusinessId"},"versionId":{"$ref":"#/components/schemas/BusinessId"},"fileName":{"type":"string","maxLength":1024},"mimeType":{"type":"string","maxLength":256},"fileSize":{"type":"integer","minimum":0},"downloadUrl":{"type":"string","format":"uri","maxLength":4096},"expiresAt":{"type":"string","format":"date-time"},"expiresInSeconds":{"type":"integer","const":60}}},
+      "KnowledgeOperation": {"type":"object","additionalProperties":false,"required":["operationId","status","operationType","createdAt"],"properties":{"operationId":{"$ref":"#/components/schemas/BusinessId"},"parentOperationId":{"$ref":"#/components/schemas/BusinessId"},"status":{"$ref":"#/components/schemas/OperationStatus"},"operationType":{"$ref":"#/components/schemas/KnowledgeOperationType"},"resourceType":{"type":"string","enum":["SPACE","DOCUMENT","VERSION","OPERATION"]},"resourceId":{"$ref":"#/components/schemas/BusinessId"},"manualRetryAttempt":{"type":"integer","minimum":0,"maximum":3},"createdAt":{"type":"string","format":"date-time"},"updatedAt":{"type":"string","format":"date-time"},"failureCode":{"$ref":"#/components/schemas/KnowledgeFailureCode"},"nextPollAfterMs":{"type":"integer","minimum":0,"maximum":60000},"retryable":{"type":"boolean"},"retryCount":{"type":"integer","minimum":0,"maximum":5},"lastRetryAt":{"oneOf":[{"type":"string","format":"date-time"},{"type":"null"}]},"nextRetryAt":{"oneOf":[{"type":"string","format":"date-time"},{"type":"null"}]}}},
+      "ManualRetryOperation": {"type":"object","additionalProperties":false,"required":["operationId","parentOperationId","status"],"properties":{"operationId":{"$ref":"#/components/schemas/BusinessId"},"parentOperationId":{"$ref":"#/components/schemas/BusinessId"},"status":{"$ref":"#/components/schemas/OperationStatus"}}},
+      "SpaceOperationAccepted": {"type":"object","additionalProperties":false,"required":["spaceId","operationId","status"],"properties":{"spaceId":{"$ref":"#/components/schemas/BusinessId"},"operationId":{"$ref":"#/components/schemas/BusinessId"},"status":{"$ref":"#/components/schemas/OperationStatus"}}},
+      "DocumentOperationAccepted": {"type":"object","additionalProperties":false,"required":["documentId","operationId","status"],"properties":{"documentId":{"$ref":"#/components/schemas/BusinessId"},"operationId":{"$ref":"#/components/schemas/BusinessId"},"status":{"$ref":"#/components/schemas/OperationStatus"}}},
+      "KnowledgeSpaceListResponse": {"type":"object","additionalProperties":false,"required":["data","meta"],"properties":{"data":{"$ref":"#/components/schemas/KnowledgeSpaceList"},"meta":{"$ref":"#/components/schemas/ListSuccessMeta"}},"examples":[{"data":{"items":[]},"meta":{"success":true,"requestId":"request-example","traceId":"trace-example","timestamp":"2026-09-05T00:00:00Z","apiVersion":"v1","pagination":{"page":1,"pageSize":20,"totalItems":0,"totalPages":0,"hasNext":false},"error":null}}]},
+      "KnowledgeSpaceResponse": {"type":"object","additionalProperties":false,"required":["data","meta"],"properties":{"data":{"$ref":"#/components/schemas/KnowledgeSpace"},"meta":{"$ref":"#/components/schemas/SuccessMeta"}}},
+      "KnowledgeSpaceCreatedResponse": {"type":"object","additionalProperties":false,"required":["data","meta"],"properties":{"data":{"$ref":"#/components/schemas/KnowledgeSpaceCreated"},"meta":{"$ref":"#/components/schemas/SuccessMeta"}}},
+      "SpaceOperationAcceptedResponse": {"type":"object","additionalProperties":false,"required":["data","meta"],"properties":{"data":{"$ref":"#/components/schemas/SpaceOperationAccepted"},"meta":{"$ref":"#/components/schemas/SuccessMeta"}}},
+      "KnowledgeDocumentListResponse": {"type":"object","additionalProperties":false,"required":["data","meta"],"properties":{"data":{"$ref":"#/components/schemas/KnowledgeDocumentList"},"meta":{"$ref":"#/components/schemas/ListSuccessMeta"}}},
+      "KnowledgeDocumentResponse": {"type":"object","additionalProperties":false,"required":["data","meta"],"properties":{"data":{"$ref":"#/components/schemas/KnowledgeDocument"},"meta":{"$ref":"#/components/schemas/SuccessMeta"}}},
+      "DocumentOperationAcceptedResponse": {"type":"object","additionalProperties":false,"required":["data","meta"],"properties":{"data":{"$ref":"#/components/schemas/DocumentOperationAccepted"},"meta":{"$ref":"#/components/schemas/SuccessMeta"}}},
+      "RetrievalResponse": {"type":"object","additionalProperties":false,"required":["data","meta"],"properties":{"data":{"$ref":"#/components/schemas/RetrievalResult"},"meta":{"$ref":"#/components/schemas/SuccessMeta"}}},
+      "CitationSourceResponse": {"type":"object","additionalProperties":false,"required":["data","meta"],"properties":{"data":{"$ref":"#/components/schemas/CitationSource"},"meta":{"$ref":"#/components/schemas/SuccessMeta"}}},
+      "DownloadLinkResponse": {"type":"object","additionalProperties":false,"required":["data","meta"],"properties":{"data":{"$ref":"#/components/schemas/DownloadLink"},"meta":{"$ref":"#/components/schemas/SuccessMeta"}}},
+      "OperationResponse": {"type":"object","additionalProperties":false,"required":["data","meta"],"properties":{"data":{"$ref":"#/components/schemas/KnowledgeOperation"},"meta":{"$ref":"#/components/schemas/SuccessMeta"}}},
+      "ManualRetryOperationResponse": {"type":"object","additionalProperties":false,"required":["data","meta"],"properties":{"data":{"$ref":"#/components/schemas/ManualRetryOperation"},"meta":{"$ref":"#/components/schemas/SuccessMeta"}}},
+      "ErrorEnvelope": {"type":"object","additionalProperties":false,"required":["data","meta"],"properties":{"data":{"type":"null"},"meta":{"$ref":"#/components/schemas/ErrorMeta"}},"examples":[{"data":null,"meta":{"success":false,"requestId":"request-example","traceId":"trace-example","timestamp":"2026-09-05T00:00:00Z","apiVersion":"v1","pagination":null,"error":{"code":"KNOWLEDGE_METADATA_FIELD_NOT_ALLOWED","message":"Unsupported metadata field","retryable":false,"fieldErrors":[{"field":"metadata.department","reason":"FIELD_NOT_ALLOWED","message":"Only category, tags, versionLabel, productCode are allowed."}]}}}]},
+      "RetrievalMatches": {"type":"object","additionalProperties":false,"required":["query","hits","traceId"],"properties":{"query":{"type":"string","maxLength":4096},"hits":{"type":"array","maxItems":8,"items":{"$ref":"#/components/schemas/RetrievalHit"},"minItems":1},"traceId":{"$ref":"#/components/schemas/BusinessId"}}},
+      "RetrievalEmpty": {"type":"object","additionalProperties":false,"required":["hits","reason"],"properties":{"query":{"type":"string","maxLength":4096},"hits":{"type":"array","maxItems":0,"items":{"$ref":"#/components/schemas/RetrievalHit"}},"traceId":{"$ref":"#/components/schemas/BusinessId"},"reason":{"type":"string","const":"NO_AUTHORIZED_RELEVANT_EVIDENCE"}}},
+      "KnowledgeSpaceUpdated": {"type":"object","additionalProperties":false,"required":["spaceId","name","status","version"],"properties":{"spaceId":{"$ref":"#/components/schemas/BusinessId"},"name":{"type":"string","maxLength":128},"description":{"type":"string","maxLength":1000},"status":{"$ref":"#/components/schemas/SpaceStatus"},"version":{"type":"integer","minimum":1}}},
+      "KnowledgeSpaceUpdatedResponse": {"type":"object","additionalProperties":false,"required":["data","meta"],"properties":{"data":{"$ref":"#/components/schemas/KnowledgeSpaceUpdated"},"meta":{"$ref":"#/components/schemas/SuccessMeta"}}},
+      "MetadataText": {"type":"string","minLength":1,"maxLength":64,"pattern":"^[^\\u0000-\\u001f\\u007f-\\u009f]+$","description":"NFC then trim; bounds apply to normalized Unicode code points. Case-sensitive."},
+      "MetadataTag": {"type":"string","minLength":1,"maxLength":32,"pattern":"^[^\\u0000-\\u001f\\u007f-\\u009f]+$","description":"NFC then trim; bounds apply to normalized Unicode code points. Case-sensitive."},
+      "DocumentMetadataPatch": {"type":"object","additionalProperties":false,"required":[],"properties":{"category":{"oneOf":[{"$ref":"#/components/schemas/MetadataText"},{"type":"null"}]},"tags":{"type":"array","maxItems":20,"uniqueItems":true,"items":{"$ref":"#/components/schemas/MetadataTag"}},"versionLabel":{"oneOf":[{"$ref":"#/components/schemas/MetadataText"},{"type":"null"}]},"productCode":{"oneOf":[{"$ref":"#/components/schemas/MetadataText"},{"type":"null"}]}}},
+      "DocumentMetadataOutput": {"type":"object","additionalProperties":false,"required":["category","tags","versionLabel","productCode"],"properties":{"category":{"oneOf":[{"$ref":"#/components/schemas/MetadataText"},{"type":"null"}]},"tags":{"type":"array","maxItems":20,"uniqueItems":true,"items":{"$ref":"#/components/schemas/MetadataTag"}},"versionLabel":{"oneOf":[{"$ref":"#/components/schemas/MetadataText"},{"type":"null"}]},"productCode":{"oneOf":[{"$ref":"#/components/schemas/MetadataText"},{"type":"null"}]}}},
+      "MetadataFilter": {"type":"object","additionalProperties":false,"required":[],"properties":{"category":{"type":"array","maxItems":20,"uniqueItems":true,"items":{"$ref":"#/components/schemas/MetadataText"},"minItems":1},"tagsAny":{"type":"array","maxItems":20,"uniqueItems":true,"items":{"$ref":"#/components/schemas/MetadataTag"},"minItems":1},"tagsAll":{"type":"array","maxItems":20,"uniqueItems":true,"items":{"$ref":"#/components/schemas/MetadataTag"},"minItems":1},"versionLabel":{"type":"array","maxItems":20,"uniqueItems":true,"items":{"$ref":"#/components/schemas/MetadataText"},"minItems":1},"productCode":{"type":"array","maxItems":20,"uniqueItems":true,"items":{"$ref":"#/components/schemas/MetadataText"},"minItems":1}},"examples":[{"category":["company-policy"],"tagsAny":["财务"],"productCode":["DEVICE-A"]}]},
+      "PaginationMeta": {"type":"object","additionalProperties":false,"required":["page","pageSize","totalItems","totalPages","hasNext"],"properties":{"page":{"type":"integer","minimum":1},"pageSize":{"type":"integer","minimum":1,"maximum":100},"totalItems":{"type":"integer","minimum":0},"totalPages":{"type":"integer","minimum":0},"hasNext":{"type":"boolean"}},"description":"page/pageSize echo the request. totalItems counts visible matching resources; totalPages=ceil(totalItems/pageSize); hasNext=page<totalPages. Empty results use totalPages=0; pages beyond totalPages return empty items. Items cannot exceed pageSize or the remaining total."},
+      "FieldError": {"type":"object","additionalProperties":false,"required":["field","reason","message"],"properties":{"field":{"type":"string","minLength":1,"maxLength":256},"reason":{"type":"string","minLength":1,"maxLength":128},"message":{"type":"string","minLength":1,"maxLength":2000}}},
+      "KnowledgeApiError": {"type":"object","additionalProperties":false,"required":["code","message","retryable","fieldErrors"],"properties":{"code":{"type":"string","minLength":1,"maxLength":128},"message":{"type":"string","minLength":1,"maxLength":2000},"retryable":{"type":"boolean"},"fieldErrors":{"type":"array","maxItems":100,"items":{"$ref":"#/components/schemas/FieldError"}}}},
+      "ListSuccessMeta": {"type":"object","additionalProperties":false,"required":["success","requestId","traceId","timestamp","apiVersion","pagination","error"],"properties":{"success":{"type":"boolean","const":true},"requestId":{"type":"string","minLength":1,"maxLength":128},"traceId":{"type":"string","minLength":1,"maxLength":128},"timestamp":{"type":"string","format":"date-time","pattern":"Z$"},"apiVersion":{"type":"string","const":"v1"},"pagination":{"$ref":"#/components/schemas/PaginationMeta"},"error":{"type":"null"}}},
+      "ErrorMeta": {"type":"object","additionalProperties":false,"required":["success","requestId","traceId","timestamp","apiVersion","pagination","error"],"properties":{"success":{"type":"boolean","const":false},"requestId":{"type":"string","minLength":1,"maxLength":128},"traceId":{"type":"string","minLength":1,"maxLength":128},"timestamp":{"type":"string","format":"date-time","pattern":"Z$"},"apiVersion":{"type":"string","const":"v1"},"pagination":{"type":"null"},"error":{"$ref":"#/components/schemas/KnowledgeApiError"}}},
+      "VersionError": {"type":"object","additionalProperties":false,"required":["code","message","retryable"],"properties":{"code":{"type":"string","minLength":1,"maxLength":64},"message":{"type":"string","minLength":1,"maxLength":2000},"retryable":{"type":"boolean"}}},
+      "DocumentVersionDetail": {"type":"object","additionalProperties":false,"required":["versionId","versionNo","changeType","status","fileName","mimeType","fileSize","operationId","operationStatus","progressPercent","progressSource","progressUpdatedAt","retryable","error","createdAt","processingStartedAt","readyAt","activatedAt","failedAt","cancelledAt"],"properties":{"versionId":{"$ref":"#/components/schemas/BusinessId"},"versionNo":{"type":"integer","minimum":1},"changeType":{"type":"string","enum":["INITIAL_UPLOAD","REPLACE","REINDEX"]},"status":{"$ref":"#/components/schemas/VersionStatus"},"fileName":{"type":"string","minLength":1,"maxLength":255},"mimeType":{"type":"string","minLength":1,"maxLength":128},"fileSize":{"type":"integer","minimum":0},"operationId":{"oneOf":[{"$ref":"#/components/schemas/BusinessId"},{"type":"null"}]},"operationStatus":{"oneOf":[{"$ref":"#/components/schemas/OperationStatus"},{"type":"null"}]},"progressPercent":{"oneOf":[{"type":"integer","minimum":0,"maximum":100},{"type":"null"}]},"progressSource":{"type":"string","enum":["PROVIDER","TERMINAL_STATE","UNAVAILABLE"]},"progressUpdatedAt":{"oneOf":[{"type":"string","format":"date-time","pattern":"Z$"},{"type":"null"}]},"retryable":{"type":"boolean"},"error":{"oneOf":[{"$ref":"#/components/schemas/VersionError"},{"type":"null"}]},"createdAt":{"type":"string","format":"date-time","pattern":"Z$"},"processingStartedAt":{"oneOf":[{"type":"string","format":"date-time","pattern":"Z$"},{"type":"null"}]},"readyAt":{"oneOf":[{"type":"string","format":"date-time","pattern":"Z$"},{"type":"null"}]},"activatedAt":{"oneOf":[{"type":"string","format":"date-time","pattern":"Z$"},{"type":"null"}]},"failedAt":{"oneOf":[{"type":"string","format":"date-time","pattern":"Z$"},{"type":"null"}]},"cancelledAt":{"oneOf":[{"type":"string","format":"date-time","pattern":"Z$"},{"type":"null"}]}}},
+      "KnowledgeDocumentDetail": {"type":"object","additionalProperties":false,"required":["documentId","spaceId","name","status","searchable","metadata","lockVersion","activeVersion","candidateVersion","createdAt","updatedAt"],"properties":{"documentId":{"$ref":"#/components/schemas/BusinessId"},"spaceId":{"$ref":"#/components/schemas/BusinessId"},"name":{"type":"string","minLength":1,"maxLength":255},"status":{"$ref":"#/components/schemas/DocumentStatus"},"searchable":{"type":"boolean"},"metadata":{"$ref":"#/components/schemas/DocumentMetadataOutput"},"lockVersion":{"type":"integer","minimum":0},"activeVersion":{"oneOf":[{"$ref":"#/components/schemas/DocumentVersionDetail"},{"type":"null"}]},"candidateVersion":{"oneOf":[{"$ref":"#/components/schemas/DocumentVersionDetail"},{"type":"null"}]},"createdAt":{"type":"string","format":"date-time","pattern":"Z$"},"updatedAt":{"type":"string","format":"date-time","pattern":"Z$"}}},
+      "KnowledgeDocumentDetailResponse": {"type":"object","additionalProperties":false,"required":["data","meta"],"properties":{"data":{"$ref":"#/components/schemas/KnowledgeDocumentDetail"},"meta":{"$ref":"#/components/schemas/SuccessMeta"}},"examples":[{"data":{"documentId":"document-1","spaceId":"space-1","name":"制度","status":"ACTIVE","searchable":true,"metadata":{"category":null,"tags":[],"versionLabel":null,"productCode":null},"lockVersion":0,"activeVersion":{"versionId":"version-1","versionNo":1,"changeType":"INITIAL_UPLOAD","status":"READY","fileName":"制度.pdf","mimeType":"application/pdf","fileSize":1024,"operationId":"operation-1","operationStatus":"SUCCEEDED","progressPercent":100,"progressSource":"TERMINAL_STATE","progressUpdatedAt":"2026-09-05T00:00:00Z","retryable":false,"error":null,"createdAt":"2026-09-05T00:00:00Z","processingStartedAt":"2026-09-05T00:00:00Z","readyAt":"2026-09-05T00:00:00Z","activatedAt":"2026-09-05T00:00:00Z","failedAt":null,"cancelledAt":null},"candidateVersion":{"versionId":"version-2","versionNo":2,"changeType":"REPLACE","status":"INGESTING","fileName":"制度.pdf","mimeType":"application/pdf","fileSize":1024,"operationId":"operation-2","operationStatus":"RUNNING","progressPercent":null,"progressSource":"UNAVAILABLE","progressUpdatedAt":null,"retryable":false,"error":null,"createdAt":"2026-09-05T00:00:00Z","processingStartedAt":"2026-09-05T00:00:00Z","readyAt":null,"activatedAt":null,"failedAt":null,"cancelledAt":null},"createdAt":"2026-09-05T00:00:00Z","updatedAt":"2026-09-05T00:00:00Z"},"meta":{"success":true,"requestId":"request-example","traceId":"trace-example","timestamp":"2026-09-05T00:00:00Z","apiVersion":"v1","pagination":null,"error":null}}]},
+      "DocumentDeleteRequest": {"type":"object","additionalProperties":false,"required":["expectedVersion","reason"],"properties":{"expectedVersion":{"type":"integer","minimum":0},"reason":{"$ref":"#/components/schemas/Reason"}}}
+    }
+  }
+}

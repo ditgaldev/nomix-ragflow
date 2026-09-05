@@ -1,235 +1,188 @@
 # @nomix-ai/nomix-ragflow
 
-Typed client and Nomix Harness plugin for the RAGFlow Business Gateway. Both
-entry points call the same public Gateway plane; neither connects to RAGFlow's
-original API or accepts a RAGFlow API key.
+Version 0.3.0 separates the server-side RAGFlow client from the Agent plugin:
 
-## Install
+- `@nomix-ai/nomix-ragflow/client` exports `RagFlowBusinessClient` exclusively for the business Knowledge Gateway provider adapter.
+- `@nomix-ai/nomix-ragflow/gateway-provider` is the separately configurable HTTP provider; replacing its Cordis row leaves tools unchanged.
+- `@nomix-ai/nomix-ragflow/plugin` installs enterprise knowledge tools for Nomix Harness Agents and consumes only `KnowledgeService`.
+- `@nomix-ai/nomix-ragflow/business-identity` provides the `dsh-business-identity` session-binding port.
 
-```bash
-npm install @nomix-ai/nomix-ragflow
+The plugin never calls RAGFlow directly and does not change RAGFlow parsing, PageIndex, indexing, retrieval, or reranking. Each business system's Knowledge Gateway owns ACLs, business-scope filtering, citation re-authorization, operation orchestration, audit, provider selection, and business-ID-to-RAGFlow-ID mapping.
+
+This is a reusable service/client and plugin, not a customer-specific integration. Any business system can implement the same Knowledge Gateway contract and configure its endpoint, service credential reference, session assertions and Agent presets. The plugin includes no customer allowlist, business-role mapping or customer-specific authorization rules. A configured provider targets one Gateway; separate deployments or isolated Harness contexts supply their own configuration. The model cannot choose or change the Gateway.
+
+Start business-system integration with the packaged [Gateway implementation guide (中文)](contracts/GATEWAY-INTEGRATION.md): ownership, all 20 HTTP endpoints, identity/authorization, version and Worker workflows, retrieval fusion, citations/downloads, and end-to-end acceptance. Installing this package does not create a business Gateway service or migrate its database.
+
+```text
+Business system session creation ──bind assertion (≤10 min)──> dsh-business-identity
+                                                        │
+Nomix Harness Agent ──20 knowledge_* tools───────────────┼──> Knowledge Gateway ──> server Provider Adapter ──> RAGFlow
+                     approval/concurrency/spill          │    ACL/mapping/audit
+                                                        └──resolved on every call
 ```
 
-The package targets Node.js `^22.19 || >=24`. The plugin targets Nomix Harness
-`^0.2.9` and imports every runtime capability through the stable Harness
-`plugin/*` API.
+## Harness composition
 
-## TypeScript client
+The preserved `RagFlowBusinessClient` targets this repository's existing RAGFlow Business Gateway contract, not native RAGFlow REST. A business system choosing native REST must implement its own server-side Provider Adapter; this plugin does not select or rewrite it.
 
-`baseURL` is the dedicated Business Gateway service root and must not contain
-`/api/v1`. The client adds that public prefix itself. `accessToken` can be a
-string or an asynchronous provider; providers are evaluated for every request,
-so token rotation does not require recreating the client.
+The bundle owns `packages/dsh-bundle-ragflow-knowledge/cordis.patch.yml`, mounting identity, provider-neutral runtime, the Gateway provider and the tool consumer in that order. Provider and consumer are separate disabled rows until configured.
 
-```ts
-import { RagFlowBusinessClient } from '@nomix-ai/nomix-ragflow/client'
+## Source workspaces and distribution
 
-const ragflow = new RagFlowBusinessClient({
-  baseURL: 'https://ragflow-business.example.com',
-  accessToken: async () => businessIdentity.getAccessToken(),
-  timeoutMs: 60_000,
-  maxResponseBytes: 16 * 1024 * 1024,
-})
+Eight real npm workspaces own the implementation:
 
-const authorization = await ragflow.authorization.getContext()
-const datasets = await ragflow.datasets.list({ limit: 20 })
-const retrieval = await ragflow.retrieval.search({
-  question: 'What changed in the latest release?',
-})
-const uploaded = await ragflow.documents.upload('dataset-id', [{
-  displayName: 'handbook.pdf',
-  body: new Blob([documentBytes], { type: 'application/pdf' }),
-}], { idempotencyKey: 'upload-handbook' })
-const documentIds = uploaded.map(document => document.id)
-await ragflow.pageIndex.build('dataset-id', { documentIds }, { idempotencyKey: 'page-index-handbook' })
-// Poll until state is ready, failed, or cancelled; use phase/errorCode to handle failures.
-const pageIndexStatus = await ragflow.pageIndex.status('dataset-id', documentIds[0])
-const pageIndex = await ragflow.pageIndex.get('dataset-id', documentIds[0])
-const routed = await ragflow.pageIndex.search({
-  datasetIds: ['dataset-id'],
-  documentIds,
-  question: 'Where is deployment covered?',
-})
-console.log(datasets.data, datasets.meta.nextCursor)
-console.log(retrieval.data.chunks, retrieval.meta.nextCursor)
-console.log(pageIndexStatus, pageIndex.templates, routed.data.navigation, routed.data.chunks)
-```
+| Workspace | Responsibility |
+|---|---|
+| `dsh-knowledge` | Service, DTOs/errors, generated contracts, shared tool validation and observations |
+| `dsh-business-identity` | Session assertion binding, refresh and cleanup |
+| `dsh-knowledge-gateway` | Gateway Provider, HTTP transport and correlation |
+| `dsh-tool-knowledge-read` | Eight read tool actions |
+| `dsh-tool-knowledge-write` | Eight maintenance tool actions |
+| `dsh-tool-knowledge-admin` | Four space administration/deletion actions |
+| `dsh-knowledge-policy` | Approval decisions and evidence guidance |
+| `dsh-bundle-ragflow-knowledge` | Agent composition, lifecycle and Cordis patch |
 
-Every request supports `AbortSignal`. Required write operations also require an
-`idempotencyKey`. Updates and single-resource deletes require the latest returned
-`version` in RequestOptions; the client sends it as `If-Match`. Gateway failures
-throw `BusinessGatewayError` with `code`, `status`, `requestId`, `details`,
-`retryable`, and optional `retryAfterMs`; timeout and cancellation remain active
-until the complete response body has been consumed. The client has no option for
-trusted tenant, workspace, subject, action, scope, or arbitrary authorization
-headers; those values come exclusively from the verified business token.
-Paginated list methods, retrieval, and PageIndex search retain the Gateway `{ data, meta }`
-envelope so callers can pass `meta.nextCursor` to the next request.
-Success bodies are streamed into a bounded buffer (16 MiB by default, 64 MiB
-hard maximum); Gateway error bodies have a separate 64 KiB parsing ceiling.
-`RequestOptions.maxResponseBytes` may lower the configured ceiling for one
-request, but cannot raise it.
+They are private source workspaces compiled into the existing single distribution, `@nomix-ai/nomix-ragflow`, not eight separately published dependencies. The existing npm lockfile/release workflow remains authoritative; no second package manager or lockfile is introduced. Each workspace declares its entrypoint, dependencies and typecheck. AST-based tests reject undeclared dependencies, cycles and reversed ownership. Tool packages depend only on the knowledge service package, never the Gateway or RAGFlow client. `src/` retains the server client and public aggregation exports.
 
-## Nomix Harness plugin
-
-Install the bundle into the profile that owns the Harness configuration:
-
-```bash
-nomix plugin --profile my-profile add @nomix-ai/nomix-ragflow
-```
-
-The bundle mounts the inert provider-neutral `ragflow-service` definition and
-inserts a disabled `ragflow` composition row. Enable the composition in that
-profile's `cordis.patch.yml` and explicitly select its Agents:
+Deployment still uses the public configuration below, without installing individual source workspaces:
 
 ```yaml
-- id: ragflow
+- id: business-identity
+  name: '@nomix-ai/nomix-ragflow/business-identity'
+
+- id: knowledge-service
+  name: '@nomix-ai/nomix-ragflow/service'
+
+- id: knowledge-gateway
+  name: '@nomix-ai/nomix-ragflow/gateway-provider'
   disabled: false
   config:
-    baseURL: https://ragflow-business.example.com
-    accessTokenRef: RAGFLOW_BUSINESS_ACCESS_TOKEN
+    gatewayBaseURL: https://knowledge-gateway.example.com
+    serviceTokenRef: KNOWLEDGE_HARNESS_SERVICE_TOKEN
     requestTimeoutMs: 60000
-    agentPresets:
-      - knowledge-worker
-    workspaceRoot: .
-    # Agent file reads are memory-bounded and capped at 64 MiB.
-    maxFileBytes: 67108864
+    artifactMaxBytes: 10485760
+
+- id: knowledge
+  name: '@nomix-ai/nomix-ragflow/plugin'
+  disabled: false
+  config:
+    agentToolsets:
+      - agentPreset: knowledge-reader
+        toolset: read
+      - agentPreset: knowledge-maintainer
+        toolset: write
+      - agentPreset: knowledge-admin
+        toolset: admin
+    requestTimeoutMs: 60000
     artifactMaxBytes: 10485760
 ```
 
-Store `RAGFLOW_BUSINESS_ACCESS_TOKEN` in the Harness credential provider. The
-integration follows the same Service Definition / Provider / Consumer boundary
-as `nomix-crm`: the Provider resolves the reference exactly once from the
-calling Agent/session context for each tool operation, then creates an
-operation-local `RagFlowBusinessClient`. The next operation observes token
-rotation. Credentials are never resolved or cached in the process-global
-Consumer context. Provider selection is explicit through `providerId`, or fails
-closed unless exactly one available Provider exists.
+The domain, credential reference and Agent preset names above are examples, not built-in defaults or business roles. Deployments must use their own configured presets.
 
-The Consumer is installed in each selected Agent scope. Root-scoped tools are
-not registered. Use `agentPresets` as an allow-list, or set
-`attachToAllAgents: true` explicitly; omitting both is a configuration error.
-Tool registration, approval listeners, filesystem access, spill ownership, and
-cleanup all follow that Agent's lifecycle.
+`gatewayBaseURL` is the business Gateway service root, without `/internal/v1/knowledge`; the plugin appends that fixed path. It is not a RAGFlow service URL. Align the provider/consumer timeout and artifact budgets.
 
-The Harness tool deadline is derived from `requestTimeoutMs` plus a fixed
-30-second allowance for Agent credential lookup and bounded artifact handling.
-The HTTP request still stops at `requestTimeoutMs`; the extra allowance does not
-extend Gateway network access.
+When the business system creates or refreshes a Harness session, it calls `BusinessIdentityRuntime.bindSession({ sessionId, userAssertion, expiresAtEpochSeconds })`. Assertions must expire within ten minutes. The plugin resolves the current assertion on every tool call; the assertion is not a static plugin credential, and the plugin caches no role, store, department, or document scope.
 
-The plugin marks requests as `agent` for audit classification only; standalone
-clients default to `rest`. That closed marker never affects identity, actions,
-workspace, or data scope. REST and Agent calls use the same authorization path.
+Bindings expire automatically; plugin disposal clears bindings and timers. Session termination should call the disposer returned by binding. An old disposer cannot remove a refreshed assertion. Gateway HTTP redirects are rejected so credentials cannot follow them.
 
-The eleven tools include `ragflow_discover` plus retrieval, PageIndex, datasets,
-documents, transfers, chunks, chats, sessions, agents, and memories. Discovery returns only
-a redacted authorization summary (availability, authentication shape, action
-count, and scope modes/counts); it never exposes subjects, workspace IDs,
-permission references, action names, or raw scope IDs. Every Agent write must
-include a caller-stable business `operationId` and requests one-time pre-execute
-approval. Retry the same uncertain business intent with the same `operationId`,
-even when Harness assigns a new tool call ID; the plugin derives the same
-Agent/operation-bound idempotency key. A distinct intent must use a distinct
-`operationId`. Approval shows bounded target IDs, artifact path, version, field
-names, and intent ID. It is an additional human gate only: the Gateway still
-enforces the token's action and resource scope. Read operations are
-parallel-safe; writes are scheduled exclusively. Tool outputs use a closed,
-discriminated `status`, `summary`, `data`, `nextActions`, and `artifacts`
-contract. Small JSON is represented as typed JSON-pointer entries. Larger
-results are stored in the Agent/session spill plane and only an artifact
-reference is exposed to the model.
+Selected Agents receive a scoped evidence instruction: never fabricate internal company rules from general knowledge when reliable evidence is absent. A deployment using Harness `complete: true` replaces additive sections and must include the exact `KNOWLEDGE_EVIDENCE_INSTRUCTIONS` exported by `./plugin`. The `llm/stream` guard checks the selected session's actual main-loop request before model dispatch; it neither reassembles nor rewrites the prompt. Other sessions and auxiliary model requests are unaffected. This is a configuration guard, not a guarantee of model correctness. Keep provider and consumer requestTimeoutMs aligned; the consumer adds Harness cleanup grace.
 
-RAGFlow's retrieval-time table-of-contents enhancement remains available through
-`ragflow_retrieval` with `tocEnhance: true`; it starts from ordinary chunk matches and
-adds directory context. The separate `ragflow_page_index` tool works with compiled
-PageIndex artifacts and covers their post-upload build, readiness, explicit tree access,
-and chapter-first retrieval loop. The complete upload-to-build workflow needs upload and
-read grants; `build` itself requires `compilation:write`, `dataset:read`, `document:read`,
-`document:update`, and `document:parse`. Upload with `ragflow_transfer_documents.upload` and retain the returned document
-IDs, then call `build` with an `operationId`. It reuses an existing single-PageIndex
-file-scope group, or creates a normal RAGFlow group from the built-in `page_index` template,
-preserves existing groups,
-binds the documents, and starts parsing. `build` is an approved, idempotent write. Poll
-the read-only `status` action until `state` is `ready` (`pageIndexAvailable` is then true),
-or reaches the terminal `failed`/`cancelled` state. Status is projected from RAGFlow's native
-document run/progress fields and compiled PageIndex artifact; `phase`, `errorCode`, and
-`errorMessage` provide a bounded interpretation without introducing a second worker state model.
-`get` returns all compiled PageIndex template trees for the document; `search` accepts one to 20 explicit dataset IDs
-and one to 20 explicit document IDs, tries exact/BM25 node matching first and the document embedding model as fallback,
-walks ancestor paths,
-and returns the navigation trace and linked chunks. Missing trees or unmatched nodes
-produce an empty result and never silently fall back to ordinary retrieval.
+Gateway requests carry only these identity and correlation headers:
 
-Agent operation bindings and all-write approval are derived from the canonical
-capability manifest. Harness metadata also declares Agent/provider selection,
-credential resolution, discovery redaction, idempotency ownership, timeout
-composition, output shape, and artifact limits; it is descriptive and grants no
-permission. Public request/query/path and operation-specific response types are
-generated from the Gateway OpenAPI contract. Responses are validated against
-the selected operation before the Client returns them; no list-wrapper or
-invoke-field guessing remains. `npm run contracts:check` prevents npm/server drift.
+- `Authorization: Bearer <Harness service token>`
+- `X-User-Assertion`
+- `X-Harness-Session-Id`
+- `X-Tool-Call-Id`
+- `X-Request-Id`
+- Mutations additionally carry `Idempotency-Key`, deterministically derived from the Harness tool execution.
 
-Uploads are read only through the owning Agent's filesystem Provider. Their
-`workspaceRoot` is relative to the session cwd; path traversal, final-component
-symlinks, symlink escape, and `maxFileBytes` violations are rejected. Agent
-deletes accept one explicit ID and its current version. REST/Client batch
-operations require explicit bounded ID lists; there is no implicit `deleteAll`.
+The model never supplies an idempotency key. It is derived from `sessionId + rootCallId + toolCallId + toolName` and remains stable when the same tool execution is replayed. Gateway `operationId` values are opaque business identifiers and need not be UUIDs.
 
-Harness does not currently expose a workspace-safe binary streaming reader, so
-Agent uploads materialize the file in memory. The plugin default and hard ceiling
-are both 64 MiB, and the upload path avoids an extra full-size `Uint8Array` copy
-before constructing the `Blob`. Use the business REST upload path for larger
-files and raise the Gateway file, complete-request, and proxy budgets together;
-the plugin never bypasses Harness fs to read a host path directly.
+## Tools, permissions, and execution policy
 
-Authorized downloads never convert a Harness path into a host Node path. They
-are persisted with session ownership in the Harness spill plane. Harness 0.2.9
-exposes a text-only SpillStore, so the raw binary limit is computed before
-download as `floor(artifactMaxBytes / 4) * 3`; the encoded artifact cannot exceed
-`artifactMaxBytes`. Binary
-downloads use an honest `.base64` text artifact fallback carrying the original
-name, media type, size, and digest. Base64 content is never embedded in the
-model-visible tool result. A future native binary artifact Provider can replace
-this fallback without changing the Gateway Client or tool contract.
+The `read` toolset contains eight read tools. `write` adds eight maintenance tools. `admin` contains all 20. The Gateway remains the final authorization authority; Actions below describe its contract and are not ACL calculations inside the plugin.
 
-## Exports
+| Tool | Gateway Action | Harness approval | Concurrency |
+|---|---|---|---|
+| `knowledge_space_list`, `knowledge_space_get` | `SPACE_VIEW` | allow | parallel |
+| `knowledge_document_list`, `knowledge_document_get`, `knowledge_source_read` | `DOCUMENT_VIEW` | allow | parallel |
+| `knowledge_search` | `KNOWLEDGE_SEARCH` | allow | parallel |
+| `knowledge_operation_get` | corresponding resource-view permission | allow | parallel |
+| `knowledge_document_download` | `DOCUMENT_DOWNLOAD` | ask | parallel |
+| `knowledge_document_upload` | `DOCUMENT_UPLOAD` | allow | exclusive |
+| `knowledge_document_update` | `DOCUMENT_UPDATE` | allow | exclusive |
+| `knowledge_document_replace`, `knowledge_document_enable`, `knowledge_document_disable` | `DOCUMENT_UPDATE` | ask | exclusive |
+| `knowledge_document_reindex` | `DOCUMENT_REINDEX` | ask | exclusive |
+| `knowledge_operation_cancel` | original operation permission | ask | exclusive |
+| `knowledge_operation_retry` | original permission + `OPERATION_RETRY` | ask | exclusive |
+| `knowledge_space_create` | `SPACE_CREATE` | ask | exclusive |
+| `knowledge_space_update` | `SPACE_UPDATE` | ask | exclusive |
+| `knowledge_space_delete` | `SPACE_DELETE` | ask | exclusive |
+| `knowledge_document_delete` | `DOCUMENT_DELETE` | ask | exclusive |
 
-- Package root: client, types, errors, and manifest.
-- `./client`: standalone `RagFlowBusinessClient`.
-- `./plugin`: Harness lifecycle entry (`name`, `inject`, `Config`, `apply`).
-- `./types`: shared public types.
-- `./errors`: `BusinessGatewayError`.
-- `./manifest`: the canonical Business Gateway capability snapshot.
-- `./service`: inert provider-neutral `RagFlowRuntime` capability seam.
-- `./provider`: Business Gateway endpoint and Agent credential binding.
-- `./consumer`: Agent-scoped tools, approvals, fs, and artifact integration.
+Maintenance and administration use single-resource requests. Batch actions, `items` arrays, and old tool aliases do not exist. Upload accepts only `knowledgeSpaceId`, `fileResourceId`, `documentName`, and optional safe business metadata. The plugin never reads local paths, depends on a filesystem, transfers binary bodies, or emits Base64.
 
-## Breaking migration from 0.x
+Agent schemas are closed. They reject user/tenant impersonation parameters, ACL subjects, RAGFlow dataset/document/chunk ID fields, technical version selection, model/Pipeline/rerank controls, thresholds/vector weights, TOC/KG controls, provider addresses, local paths, storage keys, TTL selection, and binary bodies. Business IDs are opaque strings: the plugin cannot identify Provider ownership from a string alone, so the Gateway must validate business mappings and authorization. Allowed document metadata is limited to `category`, `tags`, `versionLabel`, and `productCode`.
 
-Version 1 removes `RagFlowClient`, `RagFlowApiError`, `apiKey`, `apiKeyRef`,
-`apiVersion`, original-API paths, and direct-connect fallback. Replace the old
-RAGFlow service URL with the dedicated Gateway service root and replace the raw
-API key with a business access token (or credential reference). There is no
-compatibility mode.
+## Four explicit business contracts
 
-The full server deployment, permission, action, scope, audit, and network-boundary
-guide lives in the RAGFlow repository's Business Gateway documentation.
+Download accepts only `documentId` and calls `POST /internal/v1/knowledge/documents/{documentId}:create-download-link` with `{}`. It always targets the active version and returns `documentId`, `versionId`, `fileName`, `mimeType`, `fileSize`, `downloadUrl`, `expiresAt`, and `expiresInSeconds: 60`. The Agent cannot select a version or TTL.
 
-Licensed under Apache-2.0.
+Space creation accepts `code`, `name`, optional `description`, fixed `profileCode: enterprise-long-document`, and `defaultSecurityDomainCode`. Space update accepts only `name`, `description`, and `expectedVersion`. Space deletion accepts only `expectedVersion` and `reason`; cascade, force, and delete-all modes do not exist. The Gateway rejects non-empty spaces and spaces with pending operations.
 
-## Release
+Automatic retry of asynchronous business work belongs to the Gateway Worker, stays within the same operation, and is capped at five attempts; the plugin never automatically retries a mutation HTTP request. `knowledge_operation_retry` is an explicit maintenance/admin action taking `operationId` and `reason`; it requires approval. The Gateway checks the original permission plus `OPERATION_RETRY`, creates a child operation with `parentOperationId`, and caps manual retries at three per root operation. A limit error is normalized to `KNOWLEDGE_CONFLICT`.
 
-Release in two explicit stages:
+Manual retry acknowledgements require only `operationId`, `parentOperationId`, and `status`, not a full operation record. Operation details may include `retryable`, `retryCount`, `lastRetryAt`, and `nextRetryAt`. Safe GET/search transport failures get at most two attempts under one timeout budget, respecting explicit `retryable: false`. Download-link issuance is not automatically retried, despite being a read-visible tool.
 
-1. Push the development branch and the `nomix-v<version>` tag. The tag workflow
-   uses the lockfile to run the Gateway contract check, typecheck, lint, tests, and build on every
-   supported platform. It does not create a package or publish to npm.
-2. After every tag check passes, push the same verified commit to the
-   `npm-nomix-ragflow` branch. That branch run creates and audits the tarball,
-   verifies installation in an independent consumer and Harness profile, then
-   publishes that exact artifact to npm with provenance.
+Disconnections or timeouts while receiving either success or error bodies are transport failures: safe reads may retry only within the remaining budget; exhaustion produces `KNOWLEDGE_PROVIDER_UNAVAILABLE`. Caller cancellation remains cancellation. Fully received invalid JSON or contract violations are non-retryable protocol errors. Mutations and download-link issuance are never automatically retried after body interruption either.
 
-The tag and `npm-nomix-ragflow` branch must resolve to the same commit. Create the
-GitHub Environment `npm-publish`, grant `@nomix-ai` publish access, and add a
-fine-grained `NPM_TOKEN` with publish and 2FA-bypass permission. Never push the
-publishing branch before the tag checks pass.
+Citation `contextBefore` and `contextAfter` count Unicode code points in the normalized document, default to 1000 each, and are capped at 5000 each. Results cap `beforeContent` at 5000, `matchedContent` at 2500, `afterContent` at 5000, and their total at 12500. They include requested/actual counts, `versionId`, page range, truncation, and `EXACT_OFFSET | CHUNK_APPROXIMATE` precision.
+
+## Retrieval, lifecycle, and PageIndex
+
+`knowledge_search` accepts only `query`, `knowledgeSpaceIds`, `documentIds`, `limit`, and `metadataFilter`, with at most eight hits. The Gateway owns ACL pre/post filtering, hybrid retrieval, RRF, deduplication, merge, and ranking. A document contributes at most four hits, each content field is capped at 2500 code points, and total hit content is capped at 16000. Empty evidence requires `NO_AUTHORIZED_RELEVANT_EVIDENCE`.
+
+`documentIds: []` means no individual documents selected. Search hits use `page`, not the citation endpoint's `pageStart/pageEnd`. Empty business results are `{ "hits": [], "reason": "NO_AUTHORIZED_RELEVANT_EVIDENCE" }`. Citation `chapterPath` is optional. Documents without any active version may return `activeVersion: null`.
+
+Lifecycle states are separate:
+
+- Space: `CREATING`, `ACTIVE`, `CREATE_FAILED`, `DISABLED`, `DELETING`, `DELETED`, `DELETE_FAILED`
+- Document: `CREATING`, `ACTIVE`, `CREATE_FAILED`, `DISABLED`, `DELETING`, `DELETED`
+- Version: `CREATED`, `UPLOADING`, `UPLOADED`, `INGESTING`, `READY`, `FAILED`, `CANCELLED`, `RETIRED`, `DELETED`
+- Operation: `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`, `CANCELLED`
+
+Only an `ACTIVE` document whose active version is `READY` is searchable. RAGFlow and the Gateway retain ownership of the PageIndex tree, Knowledge Compilation, parsing settings, and low-level retrieval tuning. The Agent receives only bounded `chapterPath` evidence and re-authorized citation content; there is no complete-tree tool.
+
+## Formal document detail, pagination, and metadata
+
+`knowledge_document_get` returns `KnowledgeDocumentDetail`: `spaceId/lockVersion/searchable`, timestamps, and nullable `activeVersion/candidateVersion`. Version details include versionNo, changeType, state, operation identity/state, progress/source/timestamps, error and retryability. Unknown progress is null, never an estimated zero; READY/RETIRED use 100. Both slots are rendered, including in a spilled detail summary. Explicit pointers, single-candidate enforcement, atomic activation and retries retaining the candidate version are Gateway responsibilities. The formal detail applies to get; lists and synchronous mutations retain their distinct summary DTOs.
+
+HTTP JSON responses have exactly `data/meta`. Required meta fields: success, requestId, traceId, timestamp (UTC), apiVersion (v1), pagination, error. Success requires non-null data and null error; failure requires null data, null pagination and error containing code/message/retryable/fieldErrors. Invalid envelopes produce `KNOWLEDGE_GATEWAY_PROTOCOL_ERROR`, without bare-DTO or alias fallback.
+
+Document mutations pass the last observed `lockVersion` (or summary `version`) unchanged as `expectedVersion`, including zero. It is the document optimistic-lock counter, not the technical version's `versionNo` or `versionNumber`. Space mutation versions remain at least one. Conflicts require re-reading the resource; the plugin does not increment the counter or replay the mutation automatically.
+
+Space/document lists take page (1-based) and pageSize (default 20, range 1–100), not cursor/limit. HTTP data is `{items}`; meta.pagination contains page/pageSize/totalItems/totalPages/hasNext. Service and tool results project this as `{items,pagination}` to retain navigation. Responses must echo the requested page/pageSize; totalPages is ceil(totalItems/pageSize), and hasNext is page < totalPages. An empty collection has zero total pages; an out-of-range page has no items. Item count cannot exceed pageSize or the remaining total. Inconsistencies are protocol errors. Non-list HTTP pagination is null.
+
+Metadata strings are NFC-normalized and trimmed, preserving case. category/versionLabel/productCode are 1–64 code points; at most 20 unique tags, each 1–32 code points. Control characters and normalized duplicates are rejected; metadata JSON is bounded to 4096 UTF-8 bytes. PATCH omission means unchanged, null clears strings, [] clears tags (tags:null is invalid). Upload strings cannot be null. Output always includes four fields, using null for absent strings and [] for absent tags. Replace/reindex do not accept metadata.
+
+metadataFilter permits only category/tagsAny/tagsAll/versionLabel/productCode arrays, each with 1–20 distinct normalized values. Omit a filter field for no constraint; a present empty array is invalid (unlike PATCH tags:[]). Fields use AND, arrays OR, except tagsAll requires all values. Matching and Provider projection remain Gateway-owned. Validation codes are `KNOWLEDGE_METADATA_FIELD_NOT_ALLOWED`, `KNOWLEDGE_METADATA_FILTER_FIELD_NOT_ALLOWED`, `KNOWLEDGE_METADATA_VALUE_INVALID`, and `KNOWLEDGE_METADATA_TOO_LARGE`; unknown fields are never silently dropped. Tool-boundary business validation preserves these dedicated codes before the closed Harness input schema runs.
+
+## Output, errors, and contract source
+
+Gateway responses pass closed OpenAPI runtime validation before reaching an Agent. Large structured results are stored as UTF-8 JSON through Nomix Harness 0.2.9 `SpillStore.saveText`; both HTTP reads and spill writes are capped by `artifactMaxBytes`. Search and citation business limits are checked before spilling.
+
+General plugin business errors use `KNOWLEDGE_UNAUTHENTICATED`, `KNOWLEDGE_FORBIDDEN`, `KNOWLEDGE_NOT_FOUND`, `KNOWLEDGE_CONFLICT`, `KNOWLEDGE_OPERATION_PENDING`, `KNOWLEDGE_PROVIDER_UNAVAILABLE`, and `KNOWLEDGE_INVALID_INPUT`, alongside the protocol and metadata codes above. Provider-internal response fields, mismatched resource identities and invalid envelopes produce non-retryable `KNOWLEDGE_GATEWAY_PROTOCOL_ERROR`, not a transient outage. Known non-empty-space, retryability, manual-retry-limit and context-range failures retain fixed safe explanations, never remote messages. Harness approval and scheduling rejections retain the framework's own protocol.
+
+Closed schemas reject provider-internal structured fields and error conversion prevents raw credential/error passthrough. This is not an arbitrary-document-text redactor; the Gateway must still ensure authorized business content and download links contain no internal secrets.
+
+`contracts/knowledge-gateway.openapi.json` is the only Agent/Gateway business contract source. It generates Gateway types, routes, tool input/output schemas, approval/concurrency metadata, and the capability manifest. The independent RAGFlow Business Gateway contract continues to generate and test `RagFlowBusinessClient`; the two boundaries do not mix.
+
+The package exports the original OpenAPI 3.1 document at `@nomix-ai/nomix-ragflow/knowledge-openapi.json`. HTTP path/query/header/requestBody declarations use standard OpenAPI fields; extensions describe Harness tools and business policy. Complete detail, pagination, error, PATCH and filter examples are independently validated against their schemas. Unicode code-point limits: space name 128, description 1000, code 64, security-domain code 100, document name 255, fileResourceId 128.
+
+See [contract alignment evidence and outstanding items](contracts/ALIGNMENT.md). Plugin contract tests do not replace real Gateway/RAGFlow end-to-end acceptance.
+
+```bash
+npm run verify
+```
+
+This checks contract drift, type safety, lint, behavioral tests, build output, npm tarball contents, clean consumer imports, and Harness profile composition.
