@@ -1,6 +1,6 @@
 # @nomix-ai/nomix-ragflow
 
-Version 0.3.0 separates the server-side RAGFlow client from the Agent plugin:
+Version 1.1.0 separates the server-side RAGFlow client from the Agent plugin:
 
 - `@nomix-ai/nomix-ragflow/client` exports `RagFlowBusinessClient` exclusively for the business Knowledge Gateway provider adapter.
 - `@nomix-ai/nomix-ragflow/gateway-provider` is the separately configurable HTTP provider; replacing its Cordis row leaves tools unchanged.
@@ -192,3 +192,5 @@ This checks contract drift, type safety, lint, behavioral tests, build output, n
 Before tagging, run `npm ci` from this directory, followed by `npm run verify`. A clean consumer install does not validate the source workspace lockfile. Also run the focused Python Gateway adapter tests listed in `.github/workflows/release-nomix-plugin.yml` from the repository root.
 
 Push the working branch first, then push the annotated `nomix-v<version>` tag. Tag CI verifies the source on Linux, Windows and macOS plus the Python adapter contracts; it does not pack or publish. Only after all tag checks pass, push the same tagged commit to `npm-nomix-ragflow`. That branch verifies the tag, packs and audits the artifact, checks consumer imports and Harness composition, then publishes that exact artifact to npm with provenance.
+
+Upgrade notice: despite the selected 1.1.0 version number, this release replaces the previous Agent tools and configuration. Business systems must adapt to the Knowledge Gateway contract before upgrading; this is not a drop-in plugin update. The separate server-side `RagFlowBusinessClient` contract is preserved.

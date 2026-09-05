@@ -1,6 +1,6 @@
 # 业务 Knowledge Gateway 实现与接入指南
 
-适用于 `@nomix-ai/nomix-ragflow` **0.3.0**、Nomix Harness **0.2.9**，HTTP 契约版本为 **v1**。本文随 npm 包发布，供任何业务系统实施自己的 Gateway；不绑定客户、租户命名、角色体系、数据库或 Web 框架。
+适用于 `@nomix-ai/nomix-ragflow` **1.1.0**、Nomix Harness **0.2.9**，HTTP 契约版本为 **v1**。本文随 npm 包发布，供任何业务系统实施自己的 Gateway；不绑定客户、租户命名、角色体系、数据库或 Web 框架。
 
 本文说明业务端必须实现的行为，不表示安装 npm 包后已获得 Gateway 服务、数据库迁移、Worker 或权限系统。插件提供的是 Harness 工具及 Gateway 调用端；真实业务端仍须完成文末验收。
 
@@ -9,7 +9,7 @@
 业务系统在包发布后更新依赖并锁定版本：
 
 ```bash
-npm install --save-exact @nomix-ai/nomix-ragflow@0.3.0
+npm install --save-exact @nomix-ai/nomix-ragflow@1.1.0
 ```
 
 接入依据按以下顺序使用，不从对话记录或其他项目复制一份独立接口定义：
@@ -266,7 +266,7 @@ Gateway 返回有界完整 JSON，不自行返回 Harness artifact。插件超�
 
 ### 实施顺序
 
-1. 发布方按现有流程推送源码与 `nomix-v0.3.0` 标签；标签 CI 只验证/构建。通过后推送同一提交到 `npm-nomix-ragflow`，由工作流检查标签一致性、打包审计、发布已验证制品。本文不改变发布工作流，也不表示该版本已发布。
+1. 发布方按现有流程推送源码与 `nomix-v1.1.0` 标签；标签 CI 只验证/构建。通过后推送同一提交到 `npm-nomix-ragflow`，由工作流检查标签一致性、打包审计、发布已验证制品。本文不改变发布工作流，也不表示该版本已发布。
 2. 业务系统锁定已发布包，直接读取包内 OpenAPI；实现身份/异常包装、20 个路由及 DTO 投影。不能只重命名路径和请求头而保留原有响应格式。
 3. 完成权限、文件资源、持久化 operation/幂等、双版本事务、Worker 与 Provider Adapter；检索融合、引用和下载一并适配。
 4. 先在测试环境配置 Gateway Provider 和 Agent toolset，绑定真实测试 Session，完成下面的端到端验收，再切生产流量。仅更新 npm 依赖不会自动升级业务 Gateway。

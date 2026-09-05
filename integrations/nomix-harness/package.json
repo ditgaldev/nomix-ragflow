@@ -1,6 +1,6 @@
 {
   "name": "@nomix-ai/nomix-ragflow",
-  "version": "0.3.0",
+  "version": "1.1.0",
   "description": "RAGFlow server client and business Knowledge Gateway Harness plugin",
   "license": "Apache-2.0",
   "type": "module",

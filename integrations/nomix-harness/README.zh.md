@@ -1,6 +1,6 @@
 # @nomix-ai/nomix-ragflow
 
-0.3.0 把服务端 RAGFlow 客户端与 Agent 插件明确分开：
+1.1.0 把服务端 RAGFlow 客户端与 Agent 插件明确分开：
 
 - `@nomix-ai/nomix-ragflow/client` 导出 `RagFlowBusinessClient`，只供业务系统 Knowledge Gateway 的服务端 Provider Adapter 使用。
 - `@nomix-ai/nomix-ragflow/plugin` 为 Nomix Harness Agent 安装企业知识工具，只消费 `KnowledgeService`。
@@ -194,3 +194,5 @@ npm run verify
 打标签前，在本目录先执行 `npm ci`，再执行 `npm run verify`。干净消费者安装不能代替源码工作区锁文件验证。同时在仓库根目录执行 `.github/workflows/release-nomix-plugin.yml` 列出的 Python Gateway adapter 定向测试。
 
 先推送工作分支，再推送附注标签 `nomix-v<version>`。标签 CI 执行 Linux、Windows、macOS 源码验证及 Python adapter 契约测试，不打包、不发布。全部通过后，才把同一标签对应的提交推送到 `npm-nomix-ragflow`；该分支核对标签、打包审计、验证消费者导入和 Harness 组合，最后将同一份产物带 provenance 发布到 npm。
+
+升级注意：虽然本次选用 1.1.0 版本号，Agent 工具与配置仍发生了破坏性变更。业务系统须先按 Knowledge Gateway 契约适配，不能视为插件的无缝升级；独立的服务端 `RagFlowBusinessClient` 契约保持不变。
