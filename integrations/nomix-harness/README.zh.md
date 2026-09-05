@@ -1,15 +1,14 @@
 # @nomix-ai/nomix-ragflow
 
-1.1.0 把服务端 RAGFlow 客户端与 Agent 插件明确分开：
+1.1.1 只提供面向业务 Knowledge Gateway 的 Harness 知识插件，不再包含额外的 RAGFlow 服务端适配层。
 
-- `@nomix-ai/nomix-ragflow/client` 导出 `RagFlowBusinessClient`，只供业务系统 Knowledge Gateway 的服务端 Provider Adapter 使用。
 - `@nomix-ai/nomix-ragflow/plugin` 为 Nomix Harness Agent 安装企业知识工具，只消费 `KnowledgeService`。
 - `@nomix-ai/nomix-ragflow/gateway-provider` 单独配置 Gateway 地址和服务凭据，仅访问 `/internal/v1/knowledge/**`。替换此配置行即可替换 Provider，不改工具。
 - `@nomix-ai/nomix-ragflow/business-identity` 提供 `dsh-business-identity` Session 身份绑定端口。
 
 插件不直连 RAGFlow，也不修改 RAGFlow 的解析、PageIndex、索引、检索或重排逻辑。ACL、审批校验、业务范围过滤、引用再授权、异步操作、审计、Provider 选择以及业务 ID 到 RAGFlow ID 的映射全部属于业务系统 Knowledge Gateway。
 
-这是通用服务客户端与插件，不是某个客户的专用集成。任何业务系统均可实现同一份 Knowledge Gateway 契约，配置自己的地址、服务凭证引用、Session 断言及 Agent preset。插件不内置客户名单、业务角色映射或客户专属权限规则。一个已配置的 Provider 对应一个 Gateway；不同部署或隔离的 Harness Context 使用各自配置，模型不能选择或修改 Gateway 地址。
+这是通用知识插件，不是某个客户的专用集成。任何业务系统均可实现同一份 Knowledge Gateway 契约，配置自己的地址、服务凭证引用、Session 断言及 Agent preset。插件不内置客户名单、业务角色映射或客户专属权限规则。一个已配置的 Provider 对应一个 Gateway；不同部署或隔离的 Harness Context 使用各自配置，模型不能选择或修改 Gateway 地址。
 
 业务系统升级接入请从随 npm 包发布的 [Gateway 实现与接入指南](contracts/GATEWAY-INTEGRATION.md) 开始：包含职责边界、20 个 HTTP 接口、身份/权限、版本与 Worker、检索融合、引用下载和端到端验收。安装本包不会自动提供业务 Gateway 服务或升级业务数据库。
 
@@ -21,7 +20,7 @@ Nomix Harness Agent ──20 个 knowledge_* 工具─────┼──> Kno
                                                  └──每次调用动态解析
 ```
 
-`./client` 保留的 `RagFlowBusinessClient` 实际连接本仓库已有的 RAGFlow Business Gateway 契约，不是 RAGFlow 原生 REST 客户端。业务系统若采用原生 RAGFlow API，需要在自己的 Provider Adapter 中实现；插件不替业务系统选择或改写该适配器。
+业务系统的 Provider Adapter 直接调用 RAGFlow 原生 API，转换权限范围、资源 ID 和结果；它是业务服务端代码，不是第二个 Gateway 服务。本插件不提供原生 RAGFlow 客户端。
 
 ## Harness 组合
 
@@ -42,7 +41,7 @@ Bundle 包中的 `packages/dsh-bundle-ragflow-knowledge/cordis.patch.yml` 依次
 | `dsh-knowledge-policy` | 审批决策及证据提示词 |
 | `dsh-bundle-ragflow-knowledge` | Agent 工具组合、生命周期及 Cordis patch |
 
-这些是私有源码 workspace，由根工程统一编译并发布为 `@nomix-ai/nomix-ragflow`；不是八个需要分别安装的 npm 发布包。保留原有 npm 锁文件和发布流程，不引入另一套包管理/锁文件。每个 workspace 有自己的入口、依赖和类型检查；依赖边界测试检查所有 TypeScript 导入，拒绝反向依赖、未声明依赖和循环依赖。工具包只依赖知识服务包，不导入 Gateway 或 RAGFlow 客户端。`src/` 仅保留既有服务端客户端及对外聚合导出。
+这些是私有源码 workspace，由根工程统一编译并发布为 `@nomix-ai/nomix-ragflow`；不是八个需要分别安装的 npm 发布包。保留原有 npm 锁文件和发布流程，不引入另一套包管理/锁文件。每个 workspace 有自己的入口、依赖和类型检查；依赖边界测试检查所有 TypeScript 导入，拒绝反向依赖、未声明依赖和循环依赖。工具包只依赖知识服务包，不导入 Gateway 或 RAGFlow 客户端。`src/` 只提供对外聚合导出。
 
 以下仍是对外安装配置，用户不需要手动安装各源码 workspace：
 
@@ -177,7 +176,7 @@ Gateway 响应先经过关闭式 OpenAPI 运行时校验，再进入 Agent。大
 
 关闭式字段校验阻止 Provider 结构化内部字段，异常转换阻止原始凭证和远端错误透传；正常文档正文不是任意文本脱敏器的输入，Gateway 仍须确保业务正文和下载链接不泄露内部信息。
 
-`contracts/knowledge-gateway.openapi.json` 是 Agent/Gateway 唯一业务契约源，并生成 Gateway 类型、路由、工具输入/输出 Schema、审批/并发元数据和 capability manifest。独立的 RAGFlow Business Gateway 契约继续生成并测试 `RagFlowBusinessClient`，两个边界互不混用。
+`contracts/knowledge-gateway.openapi.json` 是 Agent/Gateway 唯一业务契约源，并生成 Gateway 类型、路由、工具输入/输出 Schema、审批/并发元数据和 capability manifest。业务端 Adapter 另行消费原生 RAGFlow API，不与此契约混用。
 
 发布包通过 `@nomix-ai/nomix-ragflow/knowledge-openapi.json` 提供原始 OpenAPI 3.1。HTTP path/query/header/requestBody 均使用标准字段声明；自定义扩展只表达 Harness 工具与业务策略。详情、分页、错误、PATCH 和过滤均提供完整示例，并独立校验示例符合 Schema。输入名称边界：空间名 128、描述 1000、code 64、安全域 code 100、文档名 255、fileResourceId 128 个 Unicode code points。
 
@@ -191,8 +190,8 @@ npm run verify
 
 ## 发布流程
 
-打标签前，在本目录先执行 `npm ci`，再执行 `npm run verify`。干净消费者安装不能代替源码工作区锁文件验证。同时在仓库根目录执行 `.github/workflows/release-nomix-plugin.yml` 列出的 Python Gateway adapter 定向测试。
+打标签前，在本目录先执行 `npm ci`，再执行 `npm run verify`。干净消费者安装不能代替源码工作区锁文件验证。
 
-先推送工作分支，再推送附注标签 `nomix-v<version>`。标签 CI 执行 Linux、Windows、macOS 源码验证及 Python adapter 契约测试，不打包、不发布。全部通过后，才把同一标签对应的提交推送到 `npm-nomix-ragflow`；该分支核对标签、打包审计、验证消费者导入和 Harness 组合，最后将同一份产物带 provenance 发布到 npm。
+先推送工作分支，再推送附注标签 `nomix-v<version>`。标签 CI 执行 Linux、Windows、macOS 源码验证，不打包、不发布。全部通过后，才把同一标签对应的提交推送到 `npm-nomix-ragflow`；该分支核对标签、打包审计、验证消费者导入和 Harness 组合，最后将同一份产物带 provenance 发布到 npm。
 
-升级注意：虽然本次选用 1.1.0 版本号，Agent 工具与配置仍发生了破坏性变更。业务系统须先按 Knowledge Gateway 契约适配，不能视为插件的无缝升级；独立的服务端 `RagFlowBusinessClient` 契约保持不变。
+升级注意：虽然本次选用补丁版本号，1.1.1 移除了 `./client`、`./errors`、`./types` 及额外服务端 Gateway。旧客户端调用方须先在业务项目改用原生 RAGFlow Adapter 再升级；知识插件的工具与 Gateway HTTP 契约不变。

@@ -10,6 +10,28 @@ const names = ['dsh-knowledge', 'dsh-business-identity', 'dsh-knowledge-gateway'
 const manifest = (name: string) => JSON.parse(readFileSync(resolve(packages, name, 'package.json'), 'utf8'))
 
 describe('knowledge workspace ownership', () => {
+  it('keeps server startup and release CI independent of the removed adapter', () => {
+    const repository = resolve(root, '../..')
+    expect(readFileSync(resolve(repository, 'api/apps/__init__.py'), 'utf8')).not.toContain('business_gateway')
+    const workflow = readFileSync(resolve(repository, '.github/workflows/release-nomix-plugin.yml'), 'utf8')
+    expect(workflow).not.toContain('business_gateway')
+    expect(workflow).not.toContain('gateway-contract')
+    expect(workflow).toContain('Verify release tag points to this commit')
+    expect(workflow).toContain('npm publish "$tarball" --access public --provenance')
+    expect(workflow).toContain("if: github.event_name == 'push' && github.ref == 'refs/heads/npm-nomix-ragflow' && matrix.os == 'ubuntu-latest'")
+  })
+
+  it('publishes only the Knowledge Gateway boundary, without a RAGFlow server client', async () => {
+    const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
+    for (const path of ['./client', './errors', './types']) expect(pkg.exports).not.toHaveProperty(path)
+    expect(readdirSync(resolve(root, 'src')).sort()).toEqual(['index.ts', 'manifest.ts'])
+    expect(pkg.scripts['contracts:generate']).toBe('node scripts/generate-knowledge-contract.mjs')
+    expect(pkg.scripts['contracts:check']).toBe('node scripts/generate-knowledge-contract.mjs --check')
+    const publicAPI = await import('../src/index.js')
+    expect(Object.keys(publicAPI).sort()).toEqual(['knowledgeGatewayCapabilityManifest', 'knowledgeHarnessCapabilityManifest'])
+    expect(publicAPI.knowledgeGatewayCapabilityManifest.service).toBe('knowledge-gateway')
+  })
+
   it('contains exactly eight real implementation packages, not forwarding entrypoints', () => {
     expect(readdirSync(packages).sort()).toEqual([...names].sort())
     for (const name of names) {

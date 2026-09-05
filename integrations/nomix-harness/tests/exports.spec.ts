@@ -7,8 +7,9 @@ import { KnowledgeGatewayProvider } from '../packages/dsh-knowledge-gateway/prov
 import { applyKnowledgeConsumer } from '../packages/dsh-bundle-ragflow-knowledge/consumer.js'
 
 describe('package entry points', () => {
-  it('keeps the RAGFlow client at root while the plugin uses the knowledge runtime', () => {
-    expect(root.RagFlowBusinessClient).toBeTypeOf('function')
+  it('exports knowledge manifests at root while the plugin uses the knowledge runtime', () => {
+    expect(root.knowledgeGatewayCapabilityManifest.service).toBe('knowledge-gateway')
+    expect(root).not.toHaveProperty('RagFlowBusinessClient')
     expect(plugin).not.toHaveProperty('RagFlowBusinessClient')
     expect(plugin.name).toBe('nomix-ragflow')
     expect(Service).toBe(KnowledgeRuntime)

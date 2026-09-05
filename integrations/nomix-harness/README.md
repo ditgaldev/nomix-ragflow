@@ -1,15 +1,14 @@
 # @nomix-ai/nomix-ragflow
 
-Version 1.1.0 separates the server-side RAGFlow client from the Agent plugin:
+Version 1.1.1 provides a Harness knowledge plugin for a business Knowledge Gateway, without the extra RAGFlow server adapter layer.
 
-- `@nomix-ai/nomix-ragflow/client` exports `RagFlowBusinessClient` exclusively for the business Knowledge Gateway provider adapter.
 - `@nomix-ai/nomix-ragflow/gateway-provider` is the separately configurable HTTP provider; replacing its Cordis row leaves tools unchanged.
 - `@nomix-ai/nomix-ragflow/plugin` installs enterprise knowledge tools for Nomix Harness Agents and consumes only `KnowledgeService`.
 - `@nomix-ai/nomix-ragflow/business-identity` provides the `dsh-business-identity` session-binding port.
 
 The plugin never calls RAGFlow directly and does not change RAGFlow parsing, PageIndex, indexing, retrieval, or reranking. Each business system's Knowledge Gateway owns ACLs, business-scope filtering, citation re-authorization, operation orchestration, audit, provider selection, and business-ID-to-RAGFlow-ID mapping.
 
-This is a reusable service/client and plugin, not a customer-specific integration. Any business system can implement the same Knowledge Gateway contract and configure its endpoint, service credential reference, session assertions and Agent presets. The plugin includes no customer allowlist, business-role mapping or customer-specific authorization rules. A configured provider targets one Gateway; separate deployments or isolated Harness contexts supply their own configuration. The model cannot choose or change the Gateway.
+This is a reusable knowledge plugin, not a customer-specific integration. Any business system can implement the same Knowledge Gateway contract and configure its endpoint, service credential reference, session assertions and Agent presets. The plugin includes no customer allowlist, business-role mapping or customer-specific authorization rules. A configured provider targets one Gateway; separate deployments or isolated Harness contexts supply their own configuration. The model cannot choose or change the Gateway.
 
 Start business-system integration with the packaged [Gateway implementation guide (中文)](contracts/GATEWAY-INTEGRATION.md): ownership, all 20 HTTP endpoints, identity/authorization, version and Worker workflows, retrieval fusion, citations/downloads, and end-to-end acceptance. Installing this package does not create a business Gateway service or migrate its database.
 
@@ -23,7 +22,7 @@ Nomix Harness Agent ──20 knowledge_* tools───────────�
 
 ## Harness composition
 
-The preserved `RagFlowBusinessClient` targets this repository's existing RAGFlow Business Gateway contract, not native RAGFlow REST. A business system choosing native REST must implement its own server-side Provider Adapter; this plugin does not select or rewrite it.
+The business system's server-side Provider Adapter calls native RAGFlow APIs and maps authorized resources and results. It is application code, not a second Gateway service. This package does not ship a native RAGFlow client.
 
 The bundle owns `packages/dsh-bundle-ragflow-knowledge/cordis.patch.yml`, mounting identity, provider-neutral runtime, the Gateway provider and the tool consumer in that order. Provider and consumer are separate disabled rows until configured.
 
@@ -42,7 +41,7 @@ Eight real npm workspaces own the implementation:
 | `dsh-knowledge-policy` | Approval decisions and evidence guidance |
 | `dsh-bundle-ragflow-knowledge` | Agent composition, lifecycle and Cordis patch |
 
-They are private source workspaces compiled into the existing single distribution, `@nomix-ai/nomix-ragflow`, not eight separately published dependencies. The existing npm lockfile/release workflow remains authoritative; no second package manager or lockfile is introduced. Each workspace declares its entrypoint, dependencies and typecheck. AST-based tests reject undeclared dependencies, cycles and reversed ownership. Tool packages depend only on the knowledge service package, never the Gateway or RAGFlow client. `src/` retains the server client and public aggregation exports.
+They are private source workspaces compiled into the existing single distribution, `@nomix-ai/nomix-ragflow`, not eight separately published dependencies. The existing npm lockfile/release workflow remains authoritative; no second package manager or lockfile is introduced. Each workspace declares its entrypoint, dependencies and typecheck. AST-based tests reject undeclared dependencies, cycles and reversed ownership. Tool packages depend only on the knowledge service package, never the Gateway or RAGFlow client. `src/` contains public aggregation exports only.
 
 Deployment still uses the public configuration below, without installing individual source workspaces:
 
@@ -175,7 +174,7 @@ General plugin business errors use `KNOWLEDGE_UNAUTHENTICATED`, `KNOWLEDGE_FORBI
 
 Closed schemas reject provider-internal structured fields and error conversion prevents raw credential/error passthrough. This is not an arbitrary-document-text redactor; the Gateway must still ensure authorized business content and download links contain no internal secrets.
 
-`contracts/knowledge-gateway.openapi.json` is the only Agent/Gateway business contract source. It generates Gateway types, routes, tool input/output schemas, approval/concurrency metadata, and the capability manifest. The independent RAGFlow Business Gateway contract continues to generate and test `RagFlowBusinessClient`; the two boundaries do not mix.
+`contracts/knowledge-gateway.openapi.json` is the only Agent/Gateway business contract source. It generates Gateway types, routes, tool input/output schemas, approval/concurrency metadata, and the capability manifest. The business Adapter consumes native RAGFlow APIs separately; their protocol is not the Agent/Gateway contract.
 
 The package exports the original OpenAPI 3.1 document at `@nomix-ai/nomix-ragflow/knowledge-openapi.json`. HTTP path/query/header/requestBody declarations use standard OpenAPI fields; extensions describe Harness tools and business policy. Complete detail, pagination, error, PATCH and filter examples are independently validated against their schemas. Unicode code-point limits: space name 128, description 1000, code 64, security-domain code 100, document name 255, fileResourceId 128.
 
@@ -189,8 +188,8 @@ This checks contract drift, type safety, lint, behavioral tests, build output, n
 
 ## Release workflow
 
-Before tagging, run `npm ci` from this directory, followed by `npm run verify`. A clean consumer install does not validate the source workspace lockfile. Also run the focused Python Gateway adapter tests listed in `.github/workflows/release-nomix-plugin.yml` from the repository root.
+Before tagging, run `npm ci` from this directory, followed by `npm run verify`. A clean consumer install does not validate the source workspace lockfile.
 
-Push the working branch first, then push the annotated `nomix-v<version>` tag. Tag CI verifies the source on Linux, Windows and macOS plus the Python adapter contracts; it does not pack or publish. Only after all tag checks pass, push the same tagged commit to `npm-nomix-ragflow`. That branch verifies the tag, packs and audits the artifact, checks consumer imports and Harness composition, then publishes that exact artifact to npm with provenance.
+Push the working branch first, then push the annotated `nomix-v<version>` tag. Tag CI verifies the source on Linux, Windows and macOS; it does not pack or publish. Only after all tag checks pass, push the same tagged commit to `npm-nomix-ragflow`. That branch verifies the tag, packs and audits the artifact, checks consumer imports and Harness composition, then publishes that exact artifact to npm with provenance.
 
-Upgrade notice: despite the selected 1.1.0 version number, this release replaces the previous Agent tools and configuration. Business systems must adapt to the Knowledge Gateway contract before upgrading; this is not a drop-in plugin update. The separate server-side `RagFlowBusinessClient` contract is preserved.
+Upgrade notice: despite the selected patch version, 1.1.1 removes `./client`, `./errors`, `./types` and the extra server Gateway. Existing client callers must migrate in their business project to a native RAGFlow Adapter before upgrading. Knowledge tools and their Gateway HTTP contract are unchanged.

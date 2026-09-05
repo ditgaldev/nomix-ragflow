@@ -1,7 +1,7 @@
 {
   "name": "@nomix-ai/nomix-ragflow",
-  "version": "1.1.0",
-  "description": "RAGFlow server client and business Knowledge Gateway Harness plugin",
+  "version": "1.1.1",
+  "description": "Business Knowledge Gateway plugin for Nomix Harness",
   "license": "Apache-2.0",
   "type": "module",
   "sideEffects": false,
@@ -11,10 +11,6 @@
     ".": {
       "types": "./lib/src/index.d.ts",
       "default": "./lib/src/index.js"
-    },
-    "./client": {
-      "types": "./lib/src/client.d.ts",
-      "default": "./lib/src/client.js"
     },
     "./plugin": {
       "types": "./lib/packages/dsh-bundle-ragflow-knowledge/plugin.d.ts",
@@ -27,14 +23,6 @@
     "./business-identity": {
       "types": "./lib/packages/dsh-business-identity/business-identity.d.ts",
       "default": "./lib/packages/dsh-business-identity/business-identity.js"
-    },
-    "./types": {
-      "types": "./lib/src/types.d.ts",
-      "default": "./lib/src/types.js"
-    },
-    "./errors": {
-      "types": "./lib/src/errors.d.ts",
-      "default": "./lib/src/errors.js"
     },
     "./knowledge-contract": {
       "types": "./lib/packages/dsh-knowledge/knowledge-openapi.generated.d.ts",
@@ -86,8 +74,8 @@
     "lint": "oxlint src packages tests scripts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "contracts:generate": "node scripts/generate-openapi-types.mjs && node scripts/generate-knowledge-contract.mjs",
-    "contracts:check": "node scripts/generate-openapi-types.mjs --check && node scripts/generate-knowledge-contract.mjs --check",
+    "contracts:generate": "node scripts/generate-knowledge-contract.mjs",
+    "contracts:check": "node scripts/generate-knowledge-contract.mjs --check",
     "verify:source": "npm run contracts:check && npm run typecheck && npm run typecheck:workspaces && npm run lint && npm run test && npm run build",
     "verify:package": "node scripts/verify-package.mjs",
     "verify": "npm run verify:source && npm run verify:package",

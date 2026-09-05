@@ -1,6 +1,6 @@
 # 方案对齐与验证边界
 
-本记录区分已实现的插件契约、配置验收和外部业务职责。修改范围限于插件；不修改 RAGFlow 原业务或业务系统源码。
+本记录区分已实现的插件契约、配置验收和外部业务职责。移除仓库附加的服务端适配层及其客户端；不修改 RAGFlow 原业务或业务系统源码。
 
 业务接入实施入口是随 npm 包发布的 [Gateway 实现与接入指南](GATEWAY-INTEGRATION.md)，HTTP 唯一契约仍为 [knowledge-gateway.openapi.json](knowledge-gateway.openapi.json)。本文记录插件侧验证证据，不代表任一业务系统已经完成适配。
 
@@ -18,7 +18,6 @@
 | Harness 审批与隔离 | 选中 Agent 范围安装；拒绝或无审批服务不执行 | `knowledge-harness.spec.ts`，使用真实 0.2.9 运行时 |
 | 无证据不编造 | Agent 系统提示词及无结果观察说明 | `knowledge-harness.spec.ts` |
 | OpenAPI | 标准 HTTP 参数/请求体；原始 JSON 随 npm 包导出 | 独立 Ajv 2020-12 校验、生成漂移检查、tarball 检查 |
-| 服务端客户端保留 | 既有 RAGFlow Business Gateway 客户端不改协议 | `client.spec.ts` |
 | 八个源码包 | 实际实现按八个私有 npm workspace 迁移；根工程统一发布 | 每包 typecheck、`workspace-boundaries.spec.ts`、干净 tarball 消费者 |
 
 ## 2026-09-05 补充协议已落地
@@ -28,7 +27,7 @@
 - 元数据按上传输入、PATCH 输入和固定输出拆分；包含 NFC/trim、字符/重复/4096 字节检查、清空语义和白名单 metadataFilter。后补正式固定输出覆盖候选版本方案早先的 metadata={} 示例；完整版本字段表优先于省略字段的场景示意。
 - `./gateway-provider` 和 `./plugin` 分别配置；Consumer 不导入 HTTP Provider，幂等执行身份归核心契约。四行 Cordis patch 与干净包安装校验覆盖组合。
 - `complete: true` 必须包含 `./plugin` 导出的证据规则原文；`llm/stream` 检查选中 Session 的实际主循环请求，缺失即阻止模型调用，不重新组装提示词，不影响其他 Session 或辅助请求。
-- 独立新协议测试：`knowledge-revisions.spec.ts`；真实 Harness 组装、输出 Schema、审批：`knowledge-harness.spec.ts`；实际 AgentLoop 与模型发送边界：`knowledge-lifecycle.spec.ts`；原客户端测试保持。
+- 独立新协议测试：`knowledge-revisions.spec.ts`；真实 Harness 组装、输出 Schema、审批：`knowledge-harness.spec.ts`；实际 AgentLoop 与模型发送边界：`knowledge-lifecycle.spec.ts`。
 
 这些测试不证明真实 Gateway 已完成数据库迁移、前后权限过滤、单候选事务或 Worker 操作。那些是业务系统的独立验收项。
 
@@ -59,4 +58,4 @@
 
 - Gateway 指南的 20 行接口表、成功状态与审批策略，以及完整 JSON 响应示例，由 `knowledge-openapi.spec.ts` 对照唯一 OpenAPI 校验。
 - npm tarball 审计要求包含该指南、OpenAPI、中英文 README 和本文；业务项目可直接从锁定版本的发布包取得接入依据。
-- 仓库 `docs/develop/business_gateway_integration.md` 仅描述 RAGFlow 服务端数据平面及 `./client`，不再声明 Agent 直连、本地路径上传、二进制 spill 或旧工具映射。业务 Knowledge Gateway 的职责和协议由上述指南说明，不修改 RAGFlow 核心或业务项目代码。
+- 业务 Knowledge Gateway 是唯一业务入口；Provider Adapter 直接连接原生 RAGFlow API。本包不再包含额外服务端 Gateway、其客户端或部署配置。

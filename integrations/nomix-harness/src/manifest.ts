@@ -1,14 +1,5 @@
-import ragFlowValue from './capabilities.generated.json' with { type: 'json' }
 import knowledgeValue from '../packages/dsh-knowledge/knowledge-capabilities.generated.json' with { type: 'json' }
 import { KNOWLEDGE_AGENT_TOOL_NAMES, TOOLSET_TOOLS } from '../packages/dsh-knowledge/harness-contract.js'
-
-export type CapabilityRisk = 'read' | 'write' | 'destructive'
-export type CapabilityIdempotency = 'none' | 'supported' | 'required'
-export interface BusinessGatewayCapability { operation: string; method: string; path: string; requiredAction: string; additionalRequiredActions: string[]; resourceType: string; risk: CapabilityRisk; idempotency: CapabilityIdempotency; clientMethod: string }
-export interface BusinessGatewayCapabilityManifest { standardVersion: 'v1'; service: 'nomix-ragflow'; plane: 'data'; operations: BusinessGatewayCapability[] }
-
-/** RAGFlow provider contract retained exclusively for the server-side client. */
-export const capabilityManifest = ragFlowValue as BusinessGatewayCapabilityManifest
 
 export interface KnowledgeGatewayCapability {
   operation: string

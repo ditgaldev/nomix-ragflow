@@ -380,14 +380,6 @@ from api.apps.backward_compat import register_backward_compat_routes
 
 register_backward_compat_routes(app)
 
-# The Business Gateway is intentionally mounted on an internal-only prefix.
-# A dedicated ingress publishes it as service-root /api/v1 and does not expose
-# the original RAGFlow API plane on the same network entrypoint.
-from api.apps.business_gateway import register_business_gateway
-
-register_business_gateway(app)
-
-
 @app.errorhandler(404)
 async def not_found(error):
     logging.error(f"The requested URL {request.path} was not found")

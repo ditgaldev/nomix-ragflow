@@ -1,15 +1,15 @@
 # 业务 Knowledge Gateway 实现与接入指南
 
-适用于 `@nomix-ai/nomix-ragflow` **1.1.0**、Nomix Harness **0.2.9**，HTTP 契约版本为 **v1**。本文随 npm 包发布，供任何业务系统实施自己的 Gateway；不绑定客户、租户命名、角色体系、数据库或 Web 框架。
+适用于 `@nomix-ai/nomix-ragflow` **1.1.1**、Nomix Harness **0.2.9**，HTTP 契约版本为 **v1**。1.1.1 移除额外服务端适配层和旧客户端出口，调用方须先完成原生 API 适配。本文供任何业务系统实施自己的 Gateway，不绑定客户、租户命名、角色体系、数据库或 Web 框架。
 
 本文说明业务端必须实现的行为，不表示安装 npm 包后已获得 Gateway 服务、数据库迁移、Worker 或权限系统。插件提供的是 Harness 工具及 Gateway 调用端；真实业务端仍须完成文末验收。
 
 ## 1. 从发布包取得唯一契约
 
-业务系统在包发布后更新依赖并锁定版本：
+业务系统完成适配后更新并锁定依赖：
 
 ```bash
-npm install --save-exact @nomix-ai/nomix-ragflow@1.1.0
+npm install --save-exact @nomix-ai/nomix-ragflow@1.1.1
 ```
 
 接入依据按以下顺序使用，不从对话记录或其他项目复制一份独立接口定义：
@@ -39,7 +39,7 @@ const openapi = JSON.parse(readFileSync(
 
 类型检查不等于运行时校验。业务项目应使用支持 OpenAPI 3.1 / JSON Schema 2020-12 的校验器，并按 `x-nomix-business-rules` 实现跨字段、权限和生命周期约束。DTO 使用自己的内部模型映射得到，不能直接返回 ORM 实体。
 
-## 2. 两个 Gateway 边界不能混用
+## 2. 一个业务 Gateway，直接适配原生 RAGFlow API
 
 ```text
 业务系统创建/刷新 Session ──> Harness businessIdentity 绑定当前用户断言
@@ -49,7 +49,7 @@ Harness Agent → knowledge_* 工具 → 通用插件 → 业务 Knowledge Gatew
                                                ↓
                                       服务端 Provider Adapter
                                                ↓
-                       RAGFlow Business Gateway 或原生 RAGFlow API
+                                  原生 RAGFlow API
                                                ↓
                             RAGFlow 解析、PageIndex、向量检索
 ```
@@ -62,9 +62,21 @@ Harness Agent → knowledge_* 工具 → 通用插件 → 业务 Knowledge Gatew
 | 服务端 Provider Adapter | 把授权后的业务命令映射到 RAGFlow 能力，把 Provider 状态/结果投影为业务 DTO | 向模型返回 Provider 地址、Key、模型/Pipeline 或底层资源标识 |
 | RAGFlow | 原有解析、索引、PageIndex、检索和重排执行 | 业务系统的角色体系、知识发布审批和业务文档 ID 定义 |
 
-`./client` 的 `RagFlowBusinessClient` 连接本仓库已有的 **RAGFlow Business Gateway**（专用 service root 下的 `/api/v1/**`，服务端 `api/apps/business_gateway`），不是上图的业务 Knowledge Gateway，也不是原生 REST 客户端。
+业务系统的 Provider Adapter 直接调用原生 RAGFlow API，把 API Key 留在服务端。不能把 Harness 服务令牌和用户断言当作 RAGFlow 凭据。Adapter 是业务服务端代码，不是另一个 Gateway 服务；本插件不发布 RAGFlow HTTP 客户端。原生 API 的路径、DTO、错误和分页必须转换成本文业务契约，不能原样转发给 Agent。
 
-业务 Adapter 若使用它，应在服务端独立取得对应的 Business access token；若使用原生 RAGFlow API，应自行适配并把 API Key 留在服务端。不能把 Harness 服务令牌和用户断言原样当作 RAGFlow 凭据。两个边界的路径、DTO、错误、版本和分页都不同。
+本次移除了仓库附加的服务端 Gateway 及其 `./client`、`./errors`、`./types` 出口。已部署旧版本的调用方必须先迁移到原生 API，再停用旧入口；已有审计、操作和幂等数据库记录不自动删除。旧的专用代理端口不能直接替换成开放的原生 API 入口，原生服务仅供可信业务后端访问，并保持 RAGFlow 自身鉴权。
+
+原生能力对照（不是一对一 DTO 替换）：
+
+| 能力 | 当前仓库原生入口 |
+|---|---|
+| 上传、文档配置、列表、删除 | `api/apps/restful_apis/document_api.py` 的 datasets/documents 接口 |
+| 启动解析、停止任务 | 同文件的 documents/parse、documents/stop 接口 |
+| PageIndex 编译配置 | 文档 parser_config 的 compilation_template_group_id；使用已有编译模板组能力 |
+| 文档结构和 PageIndex 产物 | `api/apps/restful_apis/chunk_api.py` 的 documents/{document_id}/structure/graph 接口 |
+| 常规检索 | `api/apps/restful_apis/dataset_api.py` 的 retrieval 接口 |
+
+结构产物接口不等于旧的 PageIndex search 响应。业务 Adapter 需按原生产物语义实现章节定位、正文关联和业务引用，并独立验收；不能声称仅改 URL 就完成迁移。原生模板组配置也须按部署版本及其鉴权方式接入，不修改 RAGFlow 算法。
 
 ## 3. 身份、权限和 Harness 接线
 
@@ -266,7 +278,7 @@ Gateway 返回有界完整 JSON，不自行返回 Harness artifact。插件超�
 
 ### 实施顺序
 
-1. 发布方按现有流程推送源码与 `nomix-v1.1.0` 标签；标签 CI 只验证/构建。通过后推送同一提交到 `npm-nomix-ragflow`，由工作流检查标签一致性、打包审计、发布已验证制品。本文不改变发布工作流，也不表示该版本已发布。
+1. 发布方按现有流程推送源码与 `nomix-v1.1.1` 标签；标签 CI 只验证/构建。通过后推送同一提交到 `npm-nomix-ragflow`，由工作流检查标签一致性、打包审计、发布已验证制品，不覆盖旧标签或 npm 版本。
 2. 业务系统锁定已发布包，直接读取包内 OpenAPI；实现身份/异常包装、20 个路由及 DTO 投影。不能只重命名路径和请求头而保留原有响应格式。
 3. 完成权限、文件资源、持久化 operation/幂等、双版本事务、Worker 与 Provider Adapter；检索融合、引用和下载一并适配。
 4. 先在测试环境配置 Gateway Provider 和 Agent toolset，绑定真实测试 Session，完成下面的端到端验收，再切生产流量。仅更新 npm 依赖不会自动升级业务 Gateway。

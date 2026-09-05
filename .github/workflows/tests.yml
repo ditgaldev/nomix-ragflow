@@ -136,15 +136,6 @@ jobs:
           uv sync --python 3.13 --group test --frozen
           uv pip install -e sdk/python
 
-      - name: Verify Business Gateway Python 3.13 boundary
-        run: |
-          set -euo pipefail
-          source .venv/bin/activate
-          python --version
-          pytest -q test/unit_test/api/apps/business_gateway
-          ruff check api/apps/business_gateway scripts/verify-business-gateway-deployment.py scripts/business_gateway_live_data_plane.py test/unit_test/api/apps/business_gateway test/integration/business_gateway
-          ruff format --check api/apps/business_gateway scripts/verify-business-gateway-deployment.py scripts/business_gateway_live_data_plane.py test/unit_test/api/apps/business_gateway test/integration/business_gateway
-
       - name: Run unit test
         run: |
           source .venv/bin/activate

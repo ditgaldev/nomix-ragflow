@@ -84,10 +84,6 @@ def _load_apps_module(monkeypatch):
     backward_compat_mod.register_backward_compat_routes = lambda _app: None
     monkeypatch.setitem(sys.modules, "api.apps.backward_compat", backward_compat_mod)
 
-    business_gateway_mod = ModuleType("api.apps.business_gateway")
-    business_gateway_mod.register_business_gateway = lambda target: target.extensions.__setitem__("business_gateway_registered", True)
-    monkeypatch.setitem(sys.modules, "api.apps.business_gateway", business_gateway_mod)
-
     module_name = "test_apps_init_unit_module"
     module_path = repo_root / "api" / "apps" / "__init__.py"
     spec = importlib.util.spec_from_file_location(module_name, module_path)
@@ -104,7 +100,6 @@ def test_module_init_and_unauthorized_message_variants(monkeypatch):
     _quart_app, apps_module = _load_apps_module(monkeypatch)
 
     assert apps_module.client_urls_prefix == []
-    assert apps_module.app.extensions["business_gateway_registered"] is True
 
     class _BrokenRepr:
         def __repr__(self):

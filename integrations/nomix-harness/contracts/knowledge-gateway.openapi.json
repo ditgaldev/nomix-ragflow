@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Nomix Business Knowledge Gateway Agent Contract",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "description": "Canonical contract between the Nomix Harness plugin and any business system implementing a Knowledge Gateway. Gateway endpoints and credentials are deployment configuration, not customer-specific constants. It exposes business knowledge resources only; RAGFlow provider details are intentionally absent."
   },
   "security": [
