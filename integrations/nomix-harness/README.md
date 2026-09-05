@@ -186,3 +186,9 @@ npm run verify
 ```
 
 This checks contract drift, type safety, lint, behavioral tests, build output, npm tarball contents, clean consumer imports, and Harness profile composition.
+
+## Release workflow
+
+Before tagging, run `npm ci` from this directory, followed by `npm run verify`. A clean consumer install does not validate the source workspace lockfile. Also run the focused Python Gateway adapter tests listed in `.github/workflows/release-nomix-plugin.yml` from the repository root.
+
+Push the working branch first, then push the annotated `nomix-v<version>` tag. Tag CI verifies the source on Linux, Windows and macOS plus the Python adapter contracts; it does not pack or publish. Only after all tag checks pass, push the same tagged commit to `npm-nomix-ragflow`. That branch verifies the tag, packs and audits the artifact, checks consumer imports and Harness composition, then publishes that exact artifact to npm with provenance.

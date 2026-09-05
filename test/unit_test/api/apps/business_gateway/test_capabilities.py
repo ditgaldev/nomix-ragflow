@@ -325,8 +325,12 @@ def test_gateway_schema_and_nomix_release_docs_cannot_drift_from_their_owners():
     for release_doc in (readme, readme_zh):
         assert "nomix-v<version>" in release_doc
         assert "npm-nomix-ragflow" in release_doc
-        assert "ragflow_page_index" in release_doc
-        assert "pageIndex.search" in release_doc
+        assert "npm ci" in release_doc
+        assert "knowledge_search" in release_doc
+        assert "RagFlowBusinessClient" in release_doc
+        assert "contracts/knowledge-gateway.openapi.json" in release_doc
+        assert "contracts/GATEWAY-INTEGRATION.md" in release_doc
+        assert "ragflow_page_index" not in release_doc
 
     assert "page-index/retrieval" in guide
     assert "fallbackUsed=false" in guide

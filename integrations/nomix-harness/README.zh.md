@@ -188,3 +188,9 @@ npm run verify
 ```
 
 该命令检查契约漂移、类型、lint、行为测试、构建、npm tarball 内容、干净消费者导入和 Harness profile 组合。
+
+## 发布流程
+
+打标签前，在本目录先执行 `npm ci`，再执行 `npm run verify`。干净消费者安装不能代替源码工作区锁文件验证。同时在仓库根目录执行 `.github/workflows/release-nomix-plugin.yml` 列出的 Python Gateway adapter 定向测试。
+
+先推送工作分支，再推送附注标签 `nomix-v<version>`。标签 CI 执行 Linux、Windows、macOS 源码验证及 Python adapter 契约测试，不打包、不发布。全部通过后，才把同一标签对应的提交推送到 `npm-nomix-ragflow`；该分支核对标签、打包审计、验证消费者导入和 Harness 组合，最后将同一份产物带 provenance 发布到 npm。
