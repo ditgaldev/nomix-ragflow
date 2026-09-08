@@ -120,51 +120,51 @@ Run `docker compose -f docker-compose.yml up` to launch the RAGFlow server toget
 *The following ASCII art confirms a successful launch:*
 
 ```bash
-  docker-ragflow-cpu-1  | Starting MCP Server on 0.0.0.0:9382 with base URL http://127.0.0.1:9380...
-  docker-ragflow-cpu-1  | Starting 1 task executor(s) on host 'dd0b5e07e76f'...
-  docker-ragflow-cpu-1  | 2025-04-18 15:41:18,816 INFO     27 ragflow_server log path: /ragflow/logs/ragflow_server.log, log levels: {'peewee': 'WARNING', 'pdfminer': 'WARNING', 'root': 'INFO'}
-  docker-ragflow-cpu-1  |
-  docker-ragflow-cpu-1  | __  __  ____ ____       ____  _____ ______     _______ ____
-  docker-ragflow-cpu-1  | |  \/  |/ ___|  _ \     / ___|| ____|  _ \ \   / / ____|  _ \
-  docker-ragflow-cpu-1  | | |\/| | |   | |_) |    \___ \|  _| | |_) \ \ / /|  _| | |_) |
-  docker-ragflow-cpu-1  | | |  | | |___|  __/      ___) | |___|  _ < \ V / | |___|  _ <
-  docker-ragflow-cpu-1  | |_|  |_|\____|_|        |____/|_____|_| \_\ \_/  |_____|_| \_\
-  docker-ragflow-cpu-1  |
-  docker-ragflow-cpu-1  | MCP launch mode: self-host
-  docker-ragflow-cpu-1  | MCP host: 0.0.0.0
-  docker-ragflow-cpu-1  | MCP port: 9382
-  docker-ragflow-cpu-1  | MCP base_url: http://127.0.0.1:9380
-  docker-ragflow-cpu-1  | INFO:     Started server process [26]
-  docker-ragflow-cpu-1  | INFO:     Waiting for application startup.
-  docker-ragflow-cpu-1  | INFO:     Application startup complete.
-  docker-ragflow-cpu-1  | INFO:     Uvicorn running on http://0.0.0.0:9382 (Press CTRL+C to quit)
-  docker-ragflow-cpu-1  | 2025-04-18 15:41:20,469 INFO     27 found 0 gpus
-  docker-ragflow-cpu-1  | 2025-04-18 15:41:23,263 INFO     27 init database on cluster mode successfully
-  docker-ragflow-cpu-1  | 2025-04-18 15:41:25,318 INFO     27 load_model /ragflow/rag/res/deepdoc/det.onnx uses CPU
-  docker-ragflow-cpu-1  | 2025-04-18 15:41:25,367 INFO     27 load_model /ragflow/rag/res/deepdoc/rec.onnx uses CPU
-  docker-ragflow-cpu-1  |         ____   ___    ______ ______ __
-  docker-ragflow-cpu-1  |        / __ \ /   |  / ____// ____// /____  _      __
-  docker-ragflow-cpu-1  |       / /_/ // /| | / / __ / /_   / // __ \| | /| / /
-  docker-ragflow-cpu-1  |      / _, _// ___ |/ /_/ // __/  / // /_/ /| |/ |/ /
-  docker-ragflow-cpu-1  |     /_/ |_|/_/  |_|\____//_/    /_/ \____/ |__/|__/
-  docker-ragflow-cpu-1  |
-  docker-ragflow-cpu-1  |
-  docker-ragflow-cpu-1  | 2025-04-18 15:41:29,088 INFO     27 RAGFlow version: v0.18.0-285-gb2c299fa full
-  docker-ragflow-cpu-1  | 2025-04-18 15:41:29,088 INFO     27 project base: /ragflow
-  docker-ragflow-cpu-1  | 2025-04-18 15:41:29,088 INFO     27 Current configs, from /ragflow/conf/service_conf.yaml:
-  docker-ragflow-cpu-1  |  ragflow: {'host': '0.0.0.0', 'http_port': 9380}
+  docker-server-1  | Starting MCP Server on 0.0.0.0:9382 with base URL http://127.0.0.1:9380...
+  docker-server-1  | Starting 1 task executor(s) on host 'dd0b5e07e76f'...
+  docker-server-1  | 2025-04-18 15:41:18,816 INFO     27 ragflow_server log path: /ragflow/logs/ragflow_server.log, log levels: {'peewee': 'WARNING', 'pdfminer': 'WARNING', 'root': 'INFO'}
+  docker-server-1  |
+  docker-server-1  | __  __  ____ ____       ____  _____ ______     _______ ____
+  docker-server-1  | |  \/  |/ ___|  _ \     / ___|| ____|  _ \ \   / / ____|  _ \
+  docker-server-1  | | |\/| | |   | |_) |    \___ \|  _| | |_) \ \ / /|  _| | |_) |
+  docker-server-1  | | |  | | |___|  __/      ___) | |___|  _ < \ V / | |___|  _ <
+  docker-server-1  | |_|  |_|\____|_|        |____/|_____|_| \_\ \_/  |_____|_| \_\
+  docker-server-1  |
+  docker-server-1  | MCP launch mode: self-host
+  docker-server-1  | MCP host: 0.0.0.0
+  docker-server-1  | MCP port: 9382
+  docker-server-1  | MCP base_url: http://127.0.0.1:9380
+  docker-server-1  | INFO:     Started server process [26]
+  docker-server-1  | INFO:     Waiting for application startup.
+  docker-server-1  | INFO:     Application startup complete.
+  docker-server-1  | INFO:     Uvicorn running on http://0.0.0.0:9382 (Press CTRL+C to quit)
+  docker-server-1  | 2025-04-18 15:41:20,469 INFO     27 found 0 gpus
+  docker-server-1  | 2025-04-18 15:41:23,263 INFO     27 init database on cluster mode successfully
+  docker-server-1  | 2025-04-18 15:41:25,318 INFO     27 load_model /ragflow/rag/res/deepdoc/det.onnx uses CPU
+  docker-server-1  | 2025-04-18 15:41:25,367 INFO     27 load_model /ragflow/rag/res/deepdoc/rec.onnx uses CPU
+  docker-server-1  |         ____   ___    ______ ______ __
+  docker-server-1  |        / __ \ /   |  / ____// ____// /____  _      __
+  docker-server-1  |       / /_/ // /| | / / __ / /_   / // __ \| | /| / /
+  docker-server-1  |      / _, _// ___ |/ /_/ // __/  / // /_/ /| |/ |/ /
+  docker-server-1  |     /_/ |_|/_/  |_|\____//_/    /_/ \____/ |__/|__/
+  docker-server-1  |
+  docker-server-1  |
+  docker-server-1  | 2025-04-18 15:41:29,088 INFO     27 RAGFlow version: v0.18.0-285-gb2c299fa full
+  docker-server-1  | 2025-04-18 15:41:29,088 INFO     27 project base: /ragflow
+  docker-server-1  | 2025-04-18 15:41:29,088 INFO     27 Current configs, from /ragflow/conf/service_conf.yaml:
+  docker-server-1  |  ragflow: {'host': '0.0.0.0', 'http_port': 9380}
   ...
-  docker-ragflow-cpu-1  |  * Running on all addresses (0.0.0.0)
-  docker-ragflow-cpu-1  |  * Running on http://127.0.0.1:9380
-  docker-ragflow-cpu-1  |  * Running on http://172.19.0.6:9380
-  docker-ragflow-cpu-1  |   ______           __      ______                     __
-  docker-ragflow-cpu-1  |  /_  __/___ ______/ /__   / ____/  _____  _______  __/ /_____  _____
-  docker-ragflow-cpu-1  |   / / / __ `/ ___/ //_/  / __/ | |/_/ _ \/ ___/ / / / __/ __ \/ ___/
-  docker-ragflow-cpu-1  |  / / / /_/ (__  ) ,<    / /____>  </  __/ /__/ /_/ / /_/ /_/ / /
-  docker-ragflow-cpu-1  | /_/  \__,_/____/_/|_|  /_____/_/|_|\___/\___/\__,_/\__/\____/_/
-  docker-ragflow-cpu-1  |
-  docker-ragflow-cpu-1  | 2025-04-18 15:41:34,501 INFO     32 TaskExecutor: RAGFlow version: v0.18.0-285-gb2c299fa full
-  docker-ragflow-cpu-1  | 2025-04-18 15:41:34,501 INFO     32 Use Elasticsearch http://es01:9200 as the doc engine.
+  docker-server-1  |  * Running on all addresses (0.0.0.0)
+  docker-server-1  |  * Running on http://127.0.0.1:9380
+  docker-server-1  |  * Running on http://172.19.0.6:9380
+  docker-server-1  |   ______           __      ______                     __
+  docker-server-1  |  /_  __/___ ______/ /__   / ____/  _____  _______  __/ /_____  _____
+  docker-server-1  |   / / / __ `/ ___/ //_/  / __/ | |/_/ _ \/ ___/ / / / __/ __ \/ ___/
+  docker-server-1  |  / / / /_/ (__  ) ,<    / /____>  </  __/ /__/ /_/ / /_/ /_/ / /
+  docker-server-1  | /_/  \__,_/____/_/|_|  /_____/_/|_|\___/\___/\__,_/\__/\____/_/
+  docker-server-1  |
+  docker-server-1  | 2025-04-18 15:41:34,501 INFO     32 TaskExecutor: RAGFlow version: v0.18.0-285-gb2c299fa full
+  docker-server-1  | 2025-04-18 15:41:34,501 INFO     32 Use Elasticsearch http://es01:9200 as the doc engine.
   ...
 ```
 
@@ -193,7 +193,7 @@ docker compose -f docker-compose.yml up -d
 Run the following to check the logs the RAGFlow server and the MCP server:
 
 ```bash
-docker logs docker-ragflow-cpu-1
+docker logs docker-server-1
 ```
 
 ## Security Considerations

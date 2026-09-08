@@ -223,7 +223,7 @@
 4. التحقق من حالة الخادم بعد تشغيل الخادم:
 
    ```bash
-   docker logs -f docker-ragflow-cpu-1
+   docker logs -f docker-server-1
    ```
 
    _النتيجة التالية تؤكد الإطلاق الناجح للنظام:_

@@ -1,16 +1,18 @@
 # 业务 Knowledge Gateway 实现与接入指南
 
-适用于当前源码的业务 Gateway 契约和 Nomix Harness **0.2.9**，HTTP 契约版本为 **v1**，与已发布 **1.1.1** 的插件契约一致。1.1.2 恢复原生服务端 SDK，安装 1.1.1 不会获得该恢复。本文供任何业务系统实施自己的 Gateway，不绑定客户、租户命名、角色体系、数据库或 Web 框架。
+适用于 **1.1.3** 的业务 Gateway 契约和 Nomix Harness **0.2.9**，HTTP 契约版本仍为 **v1**。本补丁同步部署命名与跨项目接入说明，不改变工具或 SDK 接口。本文供任何业务系统实施自己的 Gateway，不绑定客户、租户命名、角色体系、数据库或 Web 框架。
 
 本文说明业务端必须实现的行为，不表示安装 npm 包后已获得 Gateway 服务、数据库迁移、Worker 或权限系统。Agent 插件提供 Harness 工具及 Gateway 调用端，独立服务端 SDK 提供原生 RAGFlow 调用；真实业务端仍须完成文末验收。
 
 ## 1. 从发布包取得唯一契约
 
-业务系统使用恢复后的服务端 SDK 和 Agent 插件时，锁定 1.1.2：
+业务系统使用服务端 SDK 和 Agent 插件时，锁定 1.1.3：
 
 ```bash
-npm install --save-exact @nomix-ai/nomix-ragflow@1.1.2
+npm install --save-exact @nomix-ai/nomix-ragflow@1.1.3
 ```
+
+Compose 跨项目调用原生 RAGFlow 时，可信业务 Adapter 加入 `nomix_ragflow_gateway`，SDK `baseURL` 为 `http://nomix-ragflow:9380`。完整网络配置和限制见 [SDK 接入指南](SERVER-SDK.md)。此地址不是 Harness Provider 的 `gatewayBaseURL`，也不会因升级 npm 包而自动部署生效。
 
 接入依据按以下顺序使用，不从对话记录或其他项目复制一份独立接口定义：
 

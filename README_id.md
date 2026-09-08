@@ -221,7 +221,7 @@ Coba layanan cloud kami di [https://cloud.ragflow.io](https://cloud.ragflow.io).
 1. Periksa status server setelah server aktif dan berjalan:
 
    ```bash
-   docker logs -f docker-ragflow-cpu-1
+   docker logs -f docker-server-1
    ```
 
    _Output berikut menandakan bahwa sistem berhasil diluncurkan:_

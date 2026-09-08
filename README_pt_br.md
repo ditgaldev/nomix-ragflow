@@ -220,7 +220,7 @@ Experimente o nosso serviço na nuvem em [https://cloud.ragflow.io](https://clou
 4. Verifique o status do servidor após tê-lo iniciado:
 
    ```bash
-   docker logs -f docker-ragflow-cpu-1
+   docker logs -f docker-server-1
    ```
 
    _O seguinte resultado confirma o lançamento bem-sucedido do sistema:_

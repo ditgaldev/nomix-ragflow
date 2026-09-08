@@ -374,13 +374,13 @@ def test_docker_compose_metadata_profile_does_not_force_mysql_for_gaussdb():
     assert "metadata-mysql" in base["services"]["mysql"]["profiles"]
     assert "metadata-gaussdb" not in base["services"]["mysql"]["profiles"]
 
-    for service_name in ["ragflow-cpu", "ragflow-gpu"]:
+    for service_name in ["server", "ragflow-gpu"]:
         mysql_dep = compose["services"][service_name]["depends_on"]["mysql"]
         assert mysql_dep["condition"] == "service_healthy"
         assert mysql_dep["required"] is False
 
     assert macos_compose["services"]["ragflow"]["depends_on"]["mysql"]["required"] is False
-    for service_name in ["ragflow-cpu", "ragflow-gpu"]:
+    for service_name in ["server", "ragflow-gpu"]:
         assert cn_compose["services"][service_name]["depends_on"]["mysql"]["required"] is False
 
 

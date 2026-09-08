@@ -220,7 +220,7 @@ Essayez notre service cloud sur [https://cloud.ragflow.io](https://cloud.ragflow
 4. Vérifiez l'état du serveur après son démarrage :
 
    ```bash
-   docker logs -f docker-ragflow-cpu-1
+   docker logs -f docker-server-1
    ```
 
    _La sortie suivante confirme un lancement réussi du système :_

@@ -184,7 +184,7 @@ docker compose --profile oceanbase --profile cpu up -d
 docker compose ps
 
 # Check logs for any errors
-docker compose logs -f ragflow-cpu
+docker compose logs -f server
 ```
 
 ### Step 8: Data Integrity Verification (Optional)

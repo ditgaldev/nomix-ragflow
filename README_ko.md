@@ -204,7 +204,7 @@
 1. 서버가 시작된 후 서버 상태를 확인하세요:
 
    ```bash
-   docker logs -f docker-ragflow-cpu-1
+   docker logs -f docker-server-1
    ```
 
    _다음 출력 결과로 시스템이 성공적으로 시작되었음을 확인합니다:_

@@ -20,6 +20,33 @@
 > [!CAUTION]
 > We do not actively maintain **docker-compose-CN-oc9.yml**, **docker-compose-macos.yml**, so use them at your own risk. However, you are welcome to file a pull request to improve any of them.
 
+### Cross-project API access / 跨项目 API 调用
+
+The main Compose file connects `server` (CPU profile) or `ragflow-gpu` (GPU profile) to the dedicated `nomix_ragflow_gateway` network with the DNS alias `nomix-ragflow`. Enable only one application profile. MySQL, Redis and search/storage dependencies remain on the separate internal `ragflow` network. Network membership does not restrict ports on the application container; attach only trusted callers and retain native API authentication.
+
+主 Compose 配置将 `server`（CPU profile）或 `ragflow-gpu`（GPU profile）接入独立网络 `nomix_ragflow_gateway`，网络别名为 `nomix-ragflow`；只启用一种应用 profile。数据库、缓存和搜索/存储依赖不加入此网络。该网络不限制应用容器上的可访问端口，因此只接入可信调用方，并保留原生 API 鉴权。
+
+Start RAGFlow first so Compose creates the network, then add the following network attachment to the calling service's Compose configuration, retaining its existing networks. Both projects must use the same Docker host. Set `RAGFLOW_GATEWAY_NETWORK` on RAGFlow to isolate multiple deployments on that host, and use the matching external network name in the caller.
+
+先启动 RAGFlow 创建网络，再在调用方 Compose 中添加以下连接，并保留调用方已有网络。两个项目须位于同一 Docker 主机；同机多套部署可通过 `RAGFLOW_GATEWAY_NETWORK` 分别指定网络名，调用方使用对应名称。
+
+```yaml
+services:
+  api: # Replace with the calling service's name.
+    networks:
+      default:
+      gateway:
+
+networks:
+  gateway:
+    external: true
+    name: nomix_ragflow_gateway
+```
+
+Call `http://nomix-ragflow:9380/api/v1`; set the server SDK's `baseURL` to `http://nomix-ragflow:9380`. The alias does not depend on the Compose project name or container index. It is available only on this network after container recreation, not as host/public DNS. Do not register the alias for unrelated services on the same network. DNS aliases alone do not provide health-aware load balancing, and the existing fixed host ports still prevent direct multi-replica scaling. RAGFlow Compose owns this network; disconnect external consumers before removing the deployment's network.
+
+调用地址为 `http://nomix-ragflow:9380/api/v1`，服务端 SDK 的 `baseURL` 为 `http://nomix-ragflow:9380`。别名不绑定 Compose 项目名或容器序号，重建容器后仅在该网络内生效，不是宿主机或公网域名。同一网络内其他服务不得使用这个别名。别名不提供健康感知负载均衡，当前固定宿主机端口仍阻碍直接多副本扩容。网络由 RAGFlow Compose 管理，移除部署网络前须断开外部调用方。
+
 ## 🐬 Docker environment variables
 
 The [.env](./.env) file contains important environment variables for Docker.
@@ -191,8 +218,8 @@ Before setting `DOC_ENGINE=oceanbase`, make sure the host OS allows the file des
 
 - `deepdoc`
   The OSS DeepDoc vision service provides DLA, OCR, and TSR inference via ONNX Runtime.
-  Defined in `docker-compose.yml`, it is started automatically as a dependency of `ragflow-cpu` and `ragflow-gpu`.
-  - `image`: Docker image. Defaults to `infiniflow/deepdoc_oss:latest`.
+  Defined in `docker-compose.yml` under the opt-in `deepdoc` profile; neither `server` nor `ragflow-gpu` starts it as a dependency. Add `deepdoc` to `COMPOSE_PROFILES` alongside the existing profiles when needed.
+  - `image`: Set `DEEPDOC_IMAGE` to select the Docker image; the Compose fallback is `deepdoc_oss:latest`.
   - `port`: Serving port inside the container. Defaults to `9390`.
   - Health check: `curl -f http://localhost:9390/health` every 10s.
 

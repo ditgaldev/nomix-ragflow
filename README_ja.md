@@ -202,7 +202,7 @@
    1. サーバーを立ち上げた後、サーバーの状態を確認する:
 
    ```bash
-   docker logs -f docker-ragflow-cpu-1
+   docker logs -f docker-server-1
    ```
 
    _以下の出力は、システムが正常に起動したことを確認するものです:_

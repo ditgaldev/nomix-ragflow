@@ -1,6 +1,6 @@
 # @nomix-ai/nomix-ragflow
 
-1.1.2 提供 Harness 知识插件，恢复直连 RAGFlow 原生 API 的服务端 SDK，不恢复额外的 RAGFlow Gateway 服务层。
+1.1.3 提供 Harness 知识插件和直连 RAGFlow 原生 API 的服务端 SDK，不包含额外的 RAGFlow Gateway 服务层。本补丁同步 `server` Compose 服务名及 `nomix_ragflow_gateway` / `nomix-ragflow` 跨项目接入方式，详见随包发布的 [SDK 接入指南](contracts/SERVER-SDK.md)。SDK 和工具调用接口保持不变。
 
 - `@nomix-ai/nomix-ragflow/plugin` 为 Nomix Harness Agent 安装企业知识工具，只消费 `KnowledgeService`。
 - `@nomix-ai/nomix-ragflow/gateway-provider` 单独配置 Gateway 地址和服务凭据，仅访问 `/internal/v1/knowledge/**`。替换此配置行即可替换 Provider，不改工具。
@@ -215,8 +215,8 @@ npm run verify
 
 ## 发布流程
 
-打标签前，在本目录先执行 `npm ci`，再执行 `npm run verify`。干净消费者安装不能代替源码工作区锁文件验证。
+包、workspace、源码锁文件及 OpenAPI 发布版本信息须一致。本地可执行不生成构建产物的源码检查；发布工作流在三个平台执行 `npm ci` 和源码检查，由 CI 完成发布构建及打包。`npm run verify` 包含构建和打包，禁止本地构建/打包时不要执行。干净消费者安装不能代替源码 workspace 锁文件验证。
 
 先推送工作分支，再推送附注标签 `nomix-v<version>`。标签 CI 执行 Linux、Windows、macOS 源码验证，不打包、不发布。全部通过后，才把同一标签对应的提交推送到 `npm-nomix-ragflow`；该分支核对标签、打包审计、验证消费者导入和 Harness 组合，最后将同一份产物带 provenance 发布到 npm。
 
-发布状态：已发布 1.1.1 曾随额外 Gateway 一起移除旧 SDK。1.1.2 恢复 `./client`、`./errors`、`./types`，底层改用原生 API，不恢复多余服务。旧 Gateway DTO、路径和任务语义不是原样恢复，调用方需按 [SDK 迁移指南](contracts/SERVER-SDK.md) 调整。知识插件工具与 Gateway HTTP 契约不变。使用恢复后的 SDK 应安装 1.1.2，不覆盖 1.1.1 标签和 npm 制品。
+1.1.3 同步 Compose 服务/容器引用，增加独立跨项目网络及稳定别名，补齐服务端 SDK 接入说明，并修正 DeepDoc 按需启动说明。知识插件工具与 Gateway HTTP 契约不变。发布 npm 包不会重建已有 Docker 部署，已有版本标签和 npm 制品不得覆盖。

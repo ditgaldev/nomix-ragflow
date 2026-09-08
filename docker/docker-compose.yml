@@ -18,7 +18,7 @@ services:
       timeout: 10s
       retries: 60
 
-  ragflow-cpu:
+  server:
     depends_on:
       mysql:
         condition: service_healthy
@@ -74,7 +74,10 @@ services:
       - ./entrypoint.sh:/ragflow/entrypoint.sh
     env_file: .env
     networks:
-      - ragflow
+      ragflow:
+      gateway:
+        aliases:
+          - nomix-ragflow
     restart: unless-stopped
     # https://docs.docker.com/engine/daemon/prometheus/#create-a-prometheus-configuration
     # If you use Docker Desktop, the --add-host flag is optional. This flag ensures that the host's internal IP is exposed to the Prometheus container.
@@ -134,7 +137,10 @@ services:
       - SANDBOX_EXECUTOR_MANAGER_API_TOKEN=${SANDBOX_EXECUTOR_MANAGER_API_TOKEN:-}
     env_file: .env
     networks:
-      - ragflow
+      ragflow:
+      gateway:
+        aliases:
+          - nomix-ragflow
     restart: unless-stopped
     # https://docs.docker.com/engine/daemon/prometheus/#create-a-prometheus-scrape-configuration
     # If you use Docker Desktop, the --add-host flag is optional. This flag ensures that the host's internal IP is exposed to the Prometheus container.
@@ -173,3 +179,8 @@ services:
   #           - driver: nvidia
   #             count: all
   #             capabilities: [gpu]
+
+networks:
+  gateway:
+    name: ${RAGFLOW_GATEWAY_NETWORK:-nomix_ragflow_gateway}
+    driver: bridge

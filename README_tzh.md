@@ -227,7 +227,7 @@
 4. 伺服器啟動成功後再次確認伺服器狀態：
 
    ```bash
-   docker logs -f docker-ragflow-cpu-1
+   docker logs -f docker-server-1
    ```
 
    _出現以下介面提示說明伺服器啟動成功：_

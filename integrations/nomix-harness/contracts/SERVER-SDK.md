@@ -1,6 +1,6 @@
 # Native RAGFlow server SDK / 原生服务端 SDK
 
-1.1.2 恢复 `RagFlowBusinessClient`，直连仓库现有 `api/apps/restful_apis` 原生 API；不是恢复已删除的 RAGFlow Business Gateway。1.1.1 不含这些 SDK 出口，使用本指南需安装 1.1.2。
+1.1.3 提供 `RagFlowBusinessClient`，直连仓库现有 `api/apps/restful_apis` 原生 API，不包含额外的 RAGFlow Business Gateway 服务。本版本补齐 Compose 跨项目接入说明，SDK 和工具调用接口保持不变。
 
 ```text
 Harness Agent → knowledge_* tools → 业务 Knowledge Gateway
@@ -11,6 +11,35 @@ Harness Agent → knowledge_* tools → 业务 Knowledge Gateway
 ```
 
 SDK 是可复用的服务端调用库，不是 Harness 必须有的独立服务，也不注册工具。业务 Gateway 仍负责 ACL、幂等、审批授权、候选/活动版本、Worker、引用与下载链接；原生 API Key 只留在可信服务端。Agent 仍使用业务 ID、双凭据和受控 JSON，不能直接访问 SDK、原生 ID、原生参数或文件字节。
+
+## Cross-project Docker access / 跨项目 Docker 接入
+
+The main Compose file connects `server` (CPU profile) or `ragflow-gpu` (GPU profile) to `nomix_ragflow_gateway`, with DNS alias `nomix-ragflow`. Enable only one application profile. Start RAGFlow first, then attach the trusted business Adapter on the same Docker host to this external network, retaining its existing networks:
+
+主 Compose 将 `server`（CPU profile）或 `ragflow-gpu`（GPU profile）接入 `nomix_ragflow_gateway`，DNS 别名为 `nomix-ragflow`；只启用一种应用 profile。先启动 RAGFlow 创建网络，再将同一 Docker 主机上的可信业务 Adapter 接入该外部网络，并保留调用方已有网络：
+
+```yaml
+services:
+  api: # Replace with the business Adapter service's name.
+    networks:
+      default:
+      ragflow-gateway:
+
+networks:
+  ragflow-gateway:
+    external: true
+    name: nomix_ragflow_gateway
+```
+
+Use `http://nomix-ragflow:9380` as this SDK's `baseURL`, without `/api/v1`. This is not the Harness Provider's `gatewayBaseURL`, which still targets the business Knowledge Gateway. Native API keys stay in the trusted Adapter, never in Agent tools or the frontend. The network name introduces neither a Gateway service nor signed delegation.
+
+SDK 的 `baseURL` 使用 `http://nomix-ragflow:9380`，不带 `/api/v1`；不要将它填入 Harness Provider 的 `gatewayBaseURL`，后者仍指向业务 Knowledge Gateway。原生 API Key 仅留在可信 Adapter，不进入 Agent 工具或前端。网络名称不代表新增 Gateway 服务或签名委托。
+
+The alias is network-scoped, not host/public DNS. If RAGFlow sets `RAGFLOW_GATEWAY_NETWORK`, use the matching external network name. Do not reuse the alias for unrelated services on that network. Database/cache/storage services do not join it, but it does not restrict the application container's ports. Disconnect external consumers before removing the RAGFlow-owned network. DNS aliases do not provide health-aware load balancing; fixed host ports still prevent direct multi-replica scaling. Upgrading this npm package does not recreate containers or activate Compose changes.
+
+别名仅在该网络内解析，不是宿主机或公网域名。若设置 `RAGFLOW_GATEWAY_NETWORK`，调用方需使用对应网络名，同一网络内其他服务不得使用该别名。数据库、缓存和存储服务不加入此网络，但网络本身不限制应用容器端口。移除 RAGFlow 管理的网络前须断开外部调用方。别名不提供健康感知负载均衡，固定宿主机端口仍阻碍直接多副本扩容。升级 npm 包不会重建容器，也不会启用 Compose 变更。
+
+Repository deployment details / 仓库部署说明：[Docker README](https://github.com/ditgaldev/nomix-ragflow/blob/nomix-v1.1.3/docker/README.md)。上述接入步骤随 npm 包提供，不依赖本地仓库文件。
 
 ## Configuration / 配置
 

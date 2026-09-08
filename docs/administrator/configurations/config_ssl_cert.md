@@ -13,7 +13,7 @@ Configure SSL certificates for a RAGFlow instance deployed via Docker.
 
 ---
 
-This guide details how to configure SSL certificates for a RAGFlow instance deployed via Docker, using the container name `docker-ragflow-cpu-1` as an example.
+This guide details how to configure SSL certificates for a RAGFlow instance deployed via Docker, using the container name `docker-server-1` as an example.
 
 ## 1. Prepare Certificate Files
 
@@ -44,8 +44,8 @@ docker ps
 Transfer the files from your host machine to the container's temporary directory:
 
 ```bash
-docker cp ./fullchain.pem docker-ragflow-cpu-1:/tmp/fullchain.pem
-docker cp ./privkey.pem docker-ragflow-cpu-1:/tmp/privkey.pem
+docker cp ./fullchain.pem docker-server-1:/tmp/fullchain.pem
+docker cp ./privkey.pem docker-server-1:/tmp/privkey.pem
 ```
 
 ## 4. Deploy Certificates Inside the Container
@@ -53,7 +53,7 @@ docker cp ./privkey.pem docker-ragflow-cpu-1:/tmp/privkey.pem
 Enter the container's interactive terminal:
 
 ```bash
-docker exec -it docker-ragflow-cpu-1 /bin/bash
+docker exec -it docker-server-1 /bin/bash
 ```
 
 Once inside, move the files and set appropriate permissions:
@@ -94,7 +94,7 @@ If the changes do not take effect, exit the container and restart it:
 
 ```bash
 exit
-docker restart docker-ragflow-cpu-1
+docker restart docker-server-1
 ```
 
 ## Configuration Persistence

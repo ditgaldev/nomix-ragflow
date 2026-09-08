@@ -221,7 +221,7 @@ Bulut hizmetimizi [https://cloud.ragflow.io](https://cloud.ragflow.io) adresinde
 4. Sunucu çalışır duruma geldikten sonra sunucu durumunu kontrol edin:
 
    ```bash
-   docker logs -f docker-ragflow-cpu-1
+   docker logs -f docker-server-1
    ```
 
    _Aşağıdaki çıktı, sistemin başarıyla başlatıldığını onaylar:_

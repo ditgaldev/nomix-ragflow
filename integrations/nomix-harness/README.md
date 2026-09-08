@@ -1,6 +1,6 @@
 # @nomix-ai/nomix-ragflow
 
-Version 1.1.2 provides a Harness knowledge plugin and restores a server-side native RAGFlow SDK, without the extra RAGFlow Gateway service layer.
+Version 1.1.3 provides a Harness knowledge plugin and a server-side native RAGFlow SDK, without an extra RAGFlow Gateway service layer. This patch documents the `server` Compose service and cross-project access through `nomix_ragflow_gateway` / `nomix-ragflow`; see the packaged [server SDK guide](contracts/SERVER-SDK.md). SDK and tool interfaces are unchanged.
 
 - `@nomix-ai/nomix-ragflow/gateway-provider` is the separately configurable HTTP provider; replacing its Cordis row leaves tools unchanged.
 - `@nomix-ai/nomix-ragflow/plugin` installs enterprise knowledge tools for Nomix Harness Agents and consumes only `KnowledgeService`.
@@ -214,8 +214,8 @@ This checks contract drift, type safety, lint, behavioral tests, build output, n
 
 ## Release workflow
 
-Before tagging, run `npm ci` from this directory, followed by `npm run verify`. A clean consumer install does not validate the source workspace lockfile.
+Keep package/workspace versions, the source lockfile and OpenAPI release metadata aligned. Source checks can run locally without emitting build output; the release workflow runs `npm ci` and the source checks on all three platforms. CI owns release builds and packaging; `npm run verify` also builds and packs, so do not use it when local builds or packaging are prohibited. A clean consumer install does not validate the source workspace lockfile.
 
 Push the working branch first, then push the annotated `nomix-v<version>` tag. Tag CI verifies the source on Linux, Windows and macOS; it does not pack or publish. Only after all tag checks pass, push the same tagged commit to `npm-nomix-ragflow`. That branch verifies the tag, packs and audits the artifact, checks consumer imports and Harness composition, then publishes that exact artifact to npm with provenance.
 
-Release status: published 1.1.1 removed the old SDK along with the extra Gateway. Version 1.1.2 restores `./client`, `./errors`, and `./types` against native APIs, without restoring that service. It is not a drop-in restoration of old Gateway DTOs or routes: follow the [SDK migration guide](contracts/SERVER-SDK.md). Knowledge tools and their Gateway HTTP contract remain unchanged. Use 1.1.2 for the restored SDK; do not overwrite the 1.1.1 tag or artifact.
+Release 1.1.3 aligns Compose service/container references, adds a dedicated cross-project network and stable alias, documents server SDK access, and corrects the opt-in DeepDoc startup instructions. Knowledge tools and their Gateway HTTP contract remain unchanged. Package publication does not recreate an existing Docker deployment. Existing release tags and npm artifacts must not be overwritten.

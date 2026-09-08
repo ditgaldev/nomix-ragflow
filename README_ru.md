@@ -220,7 +220,7 @@
 4. Проверьте статус после запуска:
 
    ```bash
-   docker logs -f docker-ragflow-cpu-1
+   docker logs -f docker-server-1
    ```
 
    _Успешный запуск выглядит так:_
