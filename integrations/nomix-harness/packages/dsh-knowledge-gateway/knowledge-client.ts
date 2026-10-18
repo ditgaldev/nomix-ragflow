@@ -20,7 +20,7 @@ import {
 import { parseKnowledgeEnvelope, parseKnowledgeErrorEnvelope, type KnowledgeResponseMeta } from '../dsh-knowledge/knowledge-schema.js'
 import type { KnowledgeRequestContext, KnowledgeRequestOptions } from '../dsh-knowledge/knowledge-types.js'
 import type { KnowledgeService } from '../dsh-knowledge/service.js'
-import type { JsonValue } from '@nomix-ai/nomix-harness/plugin/tools'
+import type { JsonValue } from '@nomix-ai/nomix-harness/plugin/util-values'
 
 const FORBIDDEN_RESPONSE_KEY = /(?:ragflow|dataset|chunk|pipeline|model|rerank|provider)(?:[_-]?(?:id|url|key|token))?|(?:api[_-]?key|base[_-]?url|endpoint|last[_-]?error)/iu
 const RETRYABLE_STATUS = new Set([408, 429, 502, 503, 504])

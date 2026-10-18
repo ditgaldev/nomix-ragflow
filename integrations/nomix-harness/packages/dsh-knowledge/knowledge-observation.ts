@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto'
-import type { JsonValue, ToolRunContext, ValueSchemaSpec } from '@nomix-ai/nomix-harness/plugin/tools'
-import { INLINE_KNOWLEDGE_RESULT_MAX_BYTES } from './harness-contract.js'
+import type { ToolRunContext, ValueSchemaSpec } from '@nomix-ai/nomix-harness/plugin/tools'
+import type { JsonValue } from '@nomix-ai/nomix-harness/plugin/util-values'
 import type { CitationSource, KnowledgeGatewayData, KnowledgeDocumentDetail, DocumentVersionDetail, RetrievalResult } from './knowledge-openapi.generated.js'
 import type { KnowledgeToolOutput } from './knowledge-types.js'
 
 export interface KnowledgeObservationServices {
+  readonly inlineResultMaxBytes: number
   spillText(exec: ToolRunContext, input: { name: string; label: string; content: string }): Promise<KnowledgeToolOutput['artifacts'][number]>
 }
 
@@ -118,7 +119,7 @@ export async function observeKnowledge<Value extends KnowledgeGatewayData>(
     ? `${tool} completed without authorized relevant evidence.`
     : `${tool} completed through the business Knowledge Gateway.`
   const nextActions = emptySearch ? ['Refine the business query or select another visible knowledge space.'] : []
-  if (bytes <= INLINE_KNOWLEDGE_RESULT_MAX_BYTES) {
+  if (bytes <= services.inlineResultMaxBytes) {
     return { status: emptySearch ? 'warning' : 'success', summary, data: { kind: 'inline', format: 'structured', resultKind, result: value, bytes, truncated: false }, nextActions, artifacts: [] }
   }
   const artifact = await services.spillText(exec, { name: `${tool}-${createHash('sha256').update(String(exec.callId)).digest('hex').slice(0, 12)}.json`, label: 'full-result', content })

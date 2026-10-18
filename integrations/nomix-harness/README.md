@@ -1,6 +1,6 @@
 # @nomix-ai/nomix-ragflow
 
-Version 1.1.3 provides a Harness knowledge plugin and a server-side native RAGFlow SDK, without an extra RAGFlow Gateway service layer. This patch documents the `server` Compose service and cross-project access through `nomix_ragflow_gateway` / `nomix-ragflow`; see the packaged [server SDK guide](contracts/SERVER-SDK.md). SDK and tool interfaces are unchanged.
+Version 1.1.4 aligns the knowledge plugin with Harness 0.2.12, adds a configurable inline-result limit, and strengthens cancellation, display-resource validation and release verification. It also provides the server-side native RAGFlow SDK; see the packaged [server SDK guide](contracts/SERVER-SDK.md). The Gateway HTTP contract remains v1.
 
 - `@nomix-ai/nomix-ragflow/gateway-provider` is the separately configurable HTTP provider; replacing its Cordis row leaves tools unchanged.
 - `@nomix-ai/nomix-ragflow/plugin` installs enterprise knowledge tools for Nomix Harness Agents and consumes only `KnowledgeService`.
@@ -20,6 +20,14 @@ Nomix Harness Agent ──20 knowledge_* tools───────────�
                      approval/concurrency/spill          │    ACL/mapping/audit
                                                         └──resolved on every call
 ```
+
+## Harness compatibility and display metadata
+
+`engines.nomix` is exactly `0.2.12`, the only verified and supported Harness version. The root package and all eight private workspaces declare `@nomix-ai/nomix-harness` as both `peerDependencies` and `devDependencies`, each exactly `0.2.12`; Harness is not a regular runtime dependency.
+
+Root metadata is exported through `./locale/*.json` and `./icon`. Each of `./plugin`, `./gateway-provider`, `./business-identity` and `./service` exports its own `/locale/*.json` and `/icon`. English and Chinese locales provide distinct `meta.title` and `meta.description` for each entry; all icon exports share the original vector book at `resources/icon.svg`.
+
+This standards update has not been verified by a build, package archive or live Harness installation. The checks described elsewhere are existing verification workflows or earlier evidence, not acceptance of this update; rendered metadata and icons remain unverified.
 
 ## Harness composition
 
@@ -96,7 +104,7 @@ The domain, credential reference and Agent preset names above are examples, not 
 
 The Gateway provider requires HTTPS except for HTTP on localhost/127.0.0.1/[::1], permits a reverse-proxy path prefix, and rejects URL credentials, query and fragment. These are provider configuration checks, not model-selectable options.
 
-Node.js `^22.19.0 || >=24.0.0` is required; Harness is pinned to `0.2.9`. Both provider and consumer accept integer `requestTimeoutMs` values from 1 to 300000, defaulting to 60000; the consumer adds 30000 ms of tool cleanup grace. Both accept integer `artifactMaxBytes` values from 1 to 67108864, defaulting to 10485760. The provider bounds the complete HTTP response (error bodies also have a 65536-byte cap); the consumer bounds serialized results when spilling. These are not upload file-size limits.
+Node.js `^22.19.0 || >=24.0.0` is required; Harness is pinned to `0.2.12`. Both provider and consumer accept integer `requestTimeoutMs` values from 1 to 300000, defaulting to 60000; the consumer adds 30000 ms of tool cleanup grace. Both accept integer `artifactMaxBytes` values from 1 to 67108864, defaulting to 10485760. The provider bounds the complete HTTP response (error bodies also have a 65536-byte cap); the consumer bounds serialized results when spilling. These are not upload file-size limits.
 
 When the business system creates or refreshes a Harness session, it calls `BusinessIdentityRuntime.bindSession({ sessionId, userAssertion, expiresAtEpochSeconds })`. Assertions must expire within ten minutes. The plugin resolves the current assertion on every tool call; the assertion is not a static plugin credential, and the plugin caches no role, store, department, or document scope.
 
@@ -192,9 +200,9 @@ metadataFilter permits only category/tagsAny/tagsAll/versionLabel/productCode ar
 
 ## Output, errors, and contract source
 
-Gateway responses pass closed OpenAPI runtime validation before reaching an Agent. Large structured results are stored as UTF-8 JSON through Nomix Harness 0.2.9 `SpillStore.saveText`; both HTTP reads and spill writes are capped by `artifactMaxBytes`. Search and citation business limits are checked before spilling.
+Gateway responses pass closed OpenAPI runtime validation before reaching an Agent. Large structured results are stored as UTF-8 JSON through Nomix Harness 0.2.12 `SpillStore.saveText`; both HTTP reads and spill writes are capped by `artifactMaxBytes`. Search and citation business limits are checked before spilling.
 
-Serialized business results of at most 12000 UTF-8 bytes are inline; larger results are saved as complete JSON. Tool observations contain `status/summary/data/nextActions/artifacts`, not the HTTP `data/meta` envelope. Inline content is in `data.result`; spilled results use `data.kind=artifact-reference` and must be read using the artifact's `retrievalHint`. A summary is not complete evidence.
+The Consumer's `inlineResultMaxBytes` controls the UTF-8 JSON byte threshold: results at or below it are inline; larger results are saved as complete JSON. It defaults to 12000 and accepts integers from 1 to 67108864. It is independent of `artifactMaxBytes`, which limits spill writes rather than inline results. Tool observations contain `status/summary/data/nextActions/artifacts`, not the HTTP `data/meta` envelope. Inline content is in `data.result`; spilled results use `data.kind=artifact-reference` and must be read using the artifact's `retrievalHint`. A summary is not complete evidence.
 
 General plugin business errors use `KNOWLEDGE_UNAUTHENTICATED`, `KNOWLEDGE_FORBIDDEN`, `KNOWLEDGE_NOT_FOUND`, `KNOWLEDGE_CONFLICT`, `KNOWLEDGE_OPERATION_PENDING`, `KNOWLEDGE_PROVIDER_UNAVAILABLE`, and `KNOWLEDGE_INVALID_INPUT`, alongside the protocol and metadata codes above. Provider-internal response fields, mismatched resource identities and invalid envelopes produce non-retryable `KNOWLEDGE_GATEWAY_PROTOCOL_ERROR`, not a transient outage. Known non-empty-space, retryability, manual-retry-limit and context-range failures retain fixed safe explanations, never remote messages. Harness approval and scheduling rejections retain the framework's own protocol.
 
@@ -210,7 +218,7 @@ See [contract alignment evidence and outstanding items](contracts/ALIGNMENT.md).
 npm run verify
 ```
 
-This checks contract drift, type safety, lint, behavioral tests, build output, npm tarball contents, clean consumer imports, and Harness profile composition.
+This checks contract drift, type safety, lint, behavioral tests, build output, npm tarball contents, clean consumer imports, and Harness profile installation and execution. The profile audit first checks the disabled defaults, then enables the installed plugins against a local test Gateway, executes a scoped read tool, and checks Consumer/Provider cleanup. It does not validate a deployed business Gateway or call a model.
 
 ## Release workflow
 
@@ -218,4 +226,4 @@ Keep package/workspace versions, the source lockfile and OpenAPI release metadat
 
 Push the working branch first, then push the annotated `nomix-v<version>` tag. Tag CI verifies the source on Linux, Windows and macOS; it does not pack or publish. Only after all tag checks pass, push the same tagged commit to `npm-nomix-ragflow`. That branch verifies the tag, packs and audits the artifact, checks consumer imports and Harness composition, then publishes that exact artifact to npm with provenance.
 
-Release 1.1.3 aligns Compose service/container references, adds a dedicated cross-project network and stable alias, documents server SDK access, and corrects the opt-in DeepDoc startup instructions. Knowledge tools and their Gateway HTTP contract remain unchanged. Package publication does not recreate an existing Docker deployment. Existing release tags and npm artifacts must not be overwritten.
+Release 1.1.4 declares Harness 0.2.12 as a shared peer, supplies bilingual plugin metadata and an SVG icon, adds `inlineResultMaxBytes`, and validates activated profile execution and unload cleanup. It also updates development dependencies and documents consumer override boundaries. Package publication does not recreate an existing Docker deployment. Existing release tags and npm artifacts must not be overwritten.

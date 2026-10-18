@@ -1,6 +1,6 @@
 {
   "name": "@nomix-ai/nomix-ragflow",
-  "version": "1.1.3",
+  "version": "1.1.4",
   "description": "Nomix Harness knowledge plugin and native RAGFlow server SDK",
   "license": "Apache-2.0",
   "type": "module",
@@ -49,10 +49,22 @@
       "types": "./lib/packages/dsh-knowledge/service.d.ts",
       "default": "./lib/packages/dsh-knowledge/service.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./resources/locale/*.json",
+    "./icon": "./resources/icon.svg",
+    "./plugin/locale/*.json": "./resources/plugin/locale/*.json",
+    "./plugin/icon": "./resources/icon.svg",
+    "./gateway-provider/locale/*.json": "./resources/gateway-provider/locale/*.json",
+    "./gateway-provider/icon": "./resources/icon.svg",
+    "./business-identity/locale/*.json": "./resources/business-identity/locale/*.json",
+    "./business-identity/icon": "./resources/icon.svg",
+    "./service/locale/*.json": "./resources/service/locale/*.json",
+    "./service/icon": "./resources/icon.svg"
   },
   "files": [
+    "resources/",
     "contracts/ALIGNMENT.md",
+    "contracts/DEPENDENCY-AUDIT.md",
     "contracts/GATEWAY-INTEGRATION.md",
     "contracts/SERVER-SDK.md",
     "contracts/knowledge-gateway.openapi.json",
@@ -74,6 +86,7 @@
     "provenance": true
   },
   "engines": {
+    "nomix": "0.2.12",
     "node": "^22.19.0 || >=24.0.0"
   },
   "nomix": {
@@ -95,16 +108,23 @@
     "prepack": "npm run verify:source",
     "typecheck:workspaces": "npm run typecheck --workspaces"
   },
-  "dependencies": {
-    "@nomix-ai/nomix-harness": "0.2.9"
+  "peerDependencies": {
+    "@nomix-ai/nomix-harness": "0.2.12"
   },
   "devDependencies": {
+    "@nomix-ai/nomix-harness": "0.2.12",
     "@types/node": "24.5.2",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "oxlint": "1.14.0",
+    "sharp": "0.35.5",
     "typescript": "5.9.2",
-    "vitest": "3.2.4"
+    "vitest": "4.1.11"
+  },
+  "overrides": {
+    "@deepseek-ai/libreoffice-kit": {
+      "fflate": "0.8.3"
+    }
   },
   "workspaces": [
     "packages/*"

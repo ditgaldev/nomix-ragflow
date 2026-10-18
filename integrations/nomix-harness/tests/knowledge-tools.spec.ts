@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ToolDefinition, ToolRunContext } from '@nomix-ai/nomix-harness/plugin/tools'
-import { TOOLSET_TOOLS, type KnowledgeAgentToolName } from '../packages/dsh-knowledge/harness-contract.js'
+import { DEFAULT_INLINE_KNOWLEDGE_RESULT_MAX_BYTES, TOOLSET_TOOLS, type KnowledgeAgentToolName } from '../packages/dsh-knowledge/harness-contract.js'
+import { observeKnowledge } from '../packages/dsh-knowledge/knowledge-observation.js'
 import { knowledgeGatewayCapabilityManifest } from '../src/manifest.js'
 import { knowledgeApprovalDecision } from '../packages/dsh-knowledge-policy/policy.js'
 import { isKnowledgeToolConcurrencySafe } from '../packages/dsh-knowledge/harness-contract.js'
@@ -40,7 +41,7 @@ function setup(toolset: keyof typeof TOOLSET_TOOLS) {
   } })
   const spillText = vi.fn(async (_exec, input: { name: string; content: string }) => ({ kind: 'spill' as const, name: input.name, locator: '/spill/full.json', mimeType: 'application/json' as const, encoding: 'utf8' as const, bytes: Buffer.byteLength(input.content), storedBytes: Buffer.byteLength(input.content), retrievalHint: 'read it' }))
   const idempotencyKey = vi.fn(() => 'knowledge:stable-key')
-  const services = { knowledge: async () => client, idempotencyKey, spillText } as unknown as KnowledgeToolServices
+  const services = { inlineResultMaxBytes: DEFAULT_INLINE_KNOWLEDGE_RESULT_MAX_BYTES, knowledge: async () => client, idempotencyKey, spillText } as unknown as KnowledgeToolServices
   const dispose = registerKnowledgeTools({ agent, get: () => tools } as never, services, TOOLSET_TOOLS[toolset], 90_000)
   const exec = (name: string) => ({ agent, name, callId: 'call-1', rootCallId: 'root-1', signal: new AbortController().signal } as unknown as ToolRunContext)
   return { calls, definitions, dispose, exec, idempotencyKey, spillText }
@@ -149,11 +150,29 @@ describe('knowledge tool installation and policy', () => {
     const citation = { citationId: 'citation-1', documentId, versionId: version.versionId, documentName: 'Doc', chapterPath: [], beforeContent: 'a'.repeat(5_000), matchedContent: 'b'.repeat(2_500), afterContent: 'c'.repeat(5_000), requestedContextBefore: 5_000, requestedContextAfter: 5_000, actualContextBefore: 5_000, actualContextAfter: 5_000, matchedContentTruncated: true, locationPrecision: 'CHUNK_APPROXIMATE' }
     const client = new Proxy({}, { get: (_target, key) => key === 'then' ? undefined : async () => key === 'search' ? search : citation })
     const spillText = vi.fn(async (_exec, value: { name: string; content: string }) => ({ kind: 'spill' as const, name: value.name, locator: '/spill/full.json', mimeType: 'application/json' as const, encoding: 'utf8' as const, bytes: Buffer.byteLength(value.content), storedBytes: Buffer.byteLength(value.content), retrievalHint: 'read it' }))
-    registerKnowledgeTools({ agent, get: () => tools } as never, { knowledge: async () => client, idempotencyKey: () => 'knowledge:key', spillText } as unknown as KnowledgeToolServices, [name], 90_000)
+    registerKnowledgeTools({ agent, get: () => tools } as never, { inlineResultMaxBytes: DEFAULT_INLINE_KNOWLEDGE_RESULT_MAX_BYTES, knowledge: async () => client, idempotencyKey: () => 'knowledge:key', spillText } as unknown as KnowledgeToolServices, [name], 90_000)
     const result = await definitions[0]!.execute({ input }, ({ agent, name, callId: 'call-large', rootCallId: 'root-large', signal: new AbortController().signal } as unknown as ToolRunContext))
     expect(result).toMatchObject({ data: { kind: 'artifact-reference' }, artifacts: [{ encoding: 'utf8', mimeType: 'application/json' }] })
     expect(JSON.stringify(result)).not.toContain('base64')
     expect(spillText).toHaveBeenCalledOnce()
+  })
+
+  it.each([DEFAULT_INLINE_KNOWLEDGE_RESULT_MAX_BYTES, 64])('uses exact UTF-8 byte boundaries at a threshold of %i', async inlineResultMaxBytes => {
+    const base = { query: '文😀', traceId: 'trace', hits: [] }
+    const result = { ...base, query: base.query + 'x'.repeat(inlineResultMaxBytes - Buffer.byteLength(JSON.stringify(base))) }
+    expect(Buffer.byteLength(JSON.stringify(result))).toBe(inlineResultMaxBytes)
+    expect(JSON.stringify(result).length).toBeLessThan(inlineResultMaxBytes)
+    const spillText = vi.fn(async (_exec, input: { name: string; content: string }) => ({ kind: 'spill' as const, name: input.name, locator: '/spill/full.json', mimeType: 'application/json' as const, encoding: 'utf8' as const, bytes: Buffer.byteLength(input.content), storedBytes: Buffer.byteLength(input.content), retrievalHint: 'read it' }))
+    const services = { inlineResultMaxBytes, spillText }
+    const exec = { callId: 'boundary' } as ToolRunContext
+    const inline = await observeKnowledge(services, exec, 'knowledge_search', 'retrieval', result)
+    expect(inline.data).toMatchObject({ kind: 'inline', bytes: inlineResultMaxBytes, result })
+    expect(spillText).not.toHaveBeenCalled()
+    const above = { ...result, query: result.query + 'x' }
+    const spilled = await observeKnowledge(services, exec, 'knowledge_search', 'retrieval', above)
+    expect(spilled.data).toMatchObject({ kind: 'artifact-reference', bytes: inlineResultMaxBytes + 1 })
+    expect(spillText).toHaveBeenCalledOnce()
+    expect(JSON.parse(spillText.mock.calls[0]![1].content)).toEqual(above)
   })
 
   it('rejects an out-of-contract provider result before it can spill', async () => {
@@ -162,7 +181,7 @@ describe('knowledge tool installation and policy', () => {
     const tools = { register(definition: ToolDefinition) { definitions.push(definition); return () => undefined } }
     const result = { query: 'q', traceId: 'trace', hits: Array.from({ length: 5 }, (_, index) => ({ citationId: `citation-${index}`, documentId: 'same-document', metadata, documentName: 'Doc', chapterPath: [], content: 'x'.repeat(2_500), score: 0.8 })) }
     const spillText = vi.fn()
-    registerKnowledgeTools({ agent, get: () => tools } as never, { knowledge: async () => ({ search: async () => result }), idempotencyKey: () => 'knowledge:key', spillText } as unknown as KnowledgeToolServices, ['knowledge_search'], 90_000)
+    registerKnowledgeTools({ agent, get: () => tools } as never, { inlineResultMaxBytes: DEFAULT_INLINE_KNOWLEDGE_RESULT_MAX_BYTES, knowledge: async () => ({ search: async () => result }), idempotencyKey: () => 'knowledge:key', spillText } as unknown as KnowledgeToolServices, ['knowledge_search'], 90_000)
     await expect(definitions[0]!.execute({ input: { query: 'q' } }, ({ agent, name: 'knowledge_search', callId: 'call-invalid', rootCallId: 'root-invalid', signal: new AbortController().signal } as unknown as ToolRunContext))).rejects.toMatchObject({ code: 'KNOWLEDGE_GATEWAY_PROTOCOL_ERROR' })
     expect(spillText).not.toHaveBeenCalled()
   })

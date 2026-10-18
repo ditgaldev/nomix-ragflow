@@ -1,6 +1,6 @@
 # @nomix-ai/nomix-ragflow
 
-1.1.3 提供 Harness 知识插件和直连 RAGFlow 原生 API 的服务端 SDK，不包含额外的 RAGFlow Gateway 服务层。本补丁同步 `server` Compose 服务名及 `nomix_ragflow_gateway` / `nomix-ragflow` 跨项目接入方式，详见随包发布的 [SDK 接入指南](contracts/SERVER-SDK.md)。SDK 和工具调用接口保持不变。
+1.1.4 对齐 Harness 0.2.12，新增可配置的内联结果上限，并加强取消处理、展示资源校验与发行验收。同时提供直连 RAGFlow 原生 API 的服务端 SDK，详见随包发布的 [SDK 接入指南](contracts/SERVER-SDK.md)。Gateway HTTP 契约仍为 v1。
 
 - `@nomix-ai/nomix-ragflow/plugin` 为 Nomix Harness Agent 安装企业知识工具，只消费 `KnowledgeService`。
 - `@nomix-ai/nomix-ragflow/gateway-provider` 单独配置 Gateway 地址和服务凭据，仅访问 `/internal/v1/knowledge/**`。替换此配置行即可替换 Provider，不改工具。
@@ -21,6 +21,14 @@ Nomix Harness Agent ──20 个 knowledge_* 工具─────┼──> Kno
 ```
 
 业务系统的 Provider Adapter 使用 `@nomix-ai/nomix-ragflow/client` 的 `RagFlowBusinessClient` 直接调用 RAGFlow 原生 API，转换权限范围、资源 ID 和结果；它是业务服务端代码，不是第二个 Gateway 服务。`./types` 提供原生类型，`./errors` 提供 `RagFlowApiError`，根入口也导出 SDK。SDK 只负责原生 HTTP 调用，不计算业务权限，不注册 Agent 工具。配置、调用示例和旧接口迁移见 [服务端 SDK 指南](contracts/SERVER-SDK.md)。
+
+## Harness 兼容性与展示资源
+
+`engines.nomix` 精确为 `0.2.12`，这是唯一已验证并支持的 Harness 版本。根包与全部八个私有 workspace 均在 `peerDependencies` 和 `devDependencies` 中精确声明 `@nomix-ai/nomix-harness: 0.2.12`；Harness 不作为普通运行时依赖。
+
+根 bundle 通过 `./locale/*.json` 和 `./icon` 导出展示资源。`./plugin`、`./gateway-provider`、`./business-identity`、`./service` 各自导出 `/locale/*.json` 和 `/icon`；中英文 `meta.title`、`meta.description` 分别说明各入口职责，所有图标导出共用原创矢量知识书 `resources/icon.svg`。
+
+本次规范修正尚未通过构建、打包或真实 Harness 安装验证。其他章节的检查流程与既有证据不代表本次修改已验收；元数据及图标的实际界面展示仍未验证。
 
 ## Harness 组合
 
@@ -95,7 +103,7 @@ Bundle 包中的 `packages/dsh-bundle-ragflow-knowledge/cordis.patch.yml` 依次
 
 Gateway Provider 要求 HTTPS，只有 localhost/127.0.0.1/[::1] 可用 HTTP；允许反向代理路径前缀，不允许 URL 用户名、密码、query 和 fragment。这些是服务端配置校验，不是模型可选参数。
 
-运行环境要求 Node.js `^22.19.0 || >=24.0.0`，依赖固定的 Harness `0.2.9`。Provider 和 Consumer 的 `requestTimeoutMs` 均为整数 1–300000，默认 60000；Consumer 注册的工具超时在此基础上增加 30000 ms 清理余量。`artifactMaxBytes` 均为整数 1–67108864，默认 10485760。Provider 限制完整 HTTP 响应字节数（错误正文还受 65536 bytes 上限约束），Consumer 在 spill 时限制序列化结果字节数；二者不是文件上传大小限制。
+运行环境要求 Node.js `^22.19.0 || >=24.0.0`，依赖固定的 Harness `0.2.12`。Provider 和 Consumer 的 `requestTimeoutMs` 均为整数 1–300000，默认 60000；Consumer 注册的工具超时在此基础上增加 30000 ms 清理余量。`artifactMaxBytes` 均为整数 1–67108864，默认 10485760。Provider 限制完整 HTTP 响应字节数（错误正文还受 65536 bytes 上限约束），Consumer 在 spill 时限制序列化结果字节数；二者不是文件上传大小限制。
 
 业务系统在创建或刷新 Harness Session 时调用 `BusinessIdentityRuntime.bindSession({ sessionId, userAssertion, expiresAtEpochSeconds })`。断言必须在 10 分钟内过期；插件每次工具调用按 Session 动态解析，用户断言不是静态插件凭证，也不缓存角色、门店、部门或文档范围。
 
@@ -193,9 +201,9 @@ metadataFilter 仅允许 category/tagsAny/tagsAll/versionLabel/productCode 数�
 
 ## 输出、错误与契约
 
-Gateway 响应先经过关闭式 OpenAPI 运行时校验，再进入 Agent。大型结构化结果通过 Nomix Harness 0.2.9 `SpillStore.saveText` 保存为 UTF-8 JSON；HTTP 响应读取和 spill 均受 `artifactMaxBytes` 限制。检索和引用的业务上限在 spill 前校验。
+Gateway 响应先经过关闭式 OpenAPI 运行时校验，再进入 Agent。大型结构化结果通过 Nomix Harness 0.2.12 `SpillStore.saveText` 保存为 UTF-8 JSON；HTTP 响应读取和 spill 均受 `artifactMaxBytes` 限制。检索和引用的业务上限在 spill 前校验。
 
-序列化业务结果不超过 12000 UTF-8 bytes 时内联，超过时保存完整 JSON。工具观察包含 `status/summary/data/nextActions/artifacts`，不是 HTTP 的 `data/meta`：内联正文在 `data.result`；spill 时 `data.kind=artifact-reference`，完整正文需按 artifact 的 `retrievalHint` 读取，不能把摘要当作完整证据。
+Consumer 的 `inlineResultMaxBytes` 控制 UTF-8 JSON 字节阈值：结果不超过阈值时内联，超过时保存完整 JSON。默认 12000，允许 1–67108864 的整数；它与 `artifactMaxBytes` 独立，后者限制 spill 写入而非内联结果。工具观察包含 `status/summary/data/nextActions/artifacts`，不是 HTTP 的 `data/meta`：内联正文在 `data.result`；spill 时 `data.kind=artifact-reference`，完整正文需按 artifact 的 `retrievalHint` 读取，不能把摘要当作完整证据。
 
 插件通用业务异常使用以下错误码：`KNOWLEDGE_UNAUTHENTICATED`、`KNOWLEDGE_FORBIDDEN`、`KNOWLEDGE_NOT_FOUND`、`KNOWLEDGE_CONFLICT`、`KNOWLEDGE_OPERATION_PENDING`、`KNOWLEDGE_PROVIDER_UNAVAILABLE`、`KNOWLEDGE_INVALID_INPUT`，另有上述协议及元数据专用码。Provider 内部字段、资源身份不匹配、封装非法均返回不可重试的 `KNOWLEDGE_GATEWAY_PROTOCOL_ERROR`，不当作临时服务不可用。已知的非空空间、不可重试、人工重试次数超限和上下文范围错误保留固定、安全的业务说明，不转发远端原始消息。Harness 审批及调度拒绝仍使用自身错误协议。
 
@@ -211,7 +219,7 @@ Gateway 响应先经过关闭式 OpenAPI 运行时校验，再进入 Agent。大
 npm run verify
 ```
 
-该命令检查契约漂移、类型、lint、行为测试、构建、npm tarball 内容、干净消费者导入和 Harness profile 组合。
+该命令检查契约漂移、类型、lint、行为测试、构建、npm tarball 内容、干净消费者导入和 Harness profile 安装与执行。Profile 验收先检查默认禁用配置，再启用已安装插件，连接本地测试 Gateway 执行有作用域的读取工具，并检查 Consumer／Provider 卸载清理；不调用模型，也不替代已部署业务 Gateway 的联调。
 
 ## 发布流程
 
@@ -219,4 +227,4 @@ npm run verify
 
 先推送工作分支，再推送附注标签 `nomix-v<version>`。标签 CI 执行 Linux、Windows、macOS 源码验证，不打包、不发布。全部通过后，才把同一标签对应的提交推送到 `npm-nomix-ragflow`；该分支核对标签、打包审计、验证消费者导入和 Harness 组合，最后将同一份产物带 provenance 发布到 npm。
 
-1.1.3 同步 Compose 服务/容器引用，增加独立跨项目网络及稳定别名，补齐服务端 SDK 接入说明，并修正 DeepDoc 按需启动说明。知识插件工具与 Gateway HTTP 契约不变。发布 npm 包不会重建已有 Docker 部署，已有版本标签和 npm 制品不得覆盖。
+1.1.4 将 Harness 0.2.12 声明为共享 peer，补齐中英文插件元数据与 SVG 图标，新增 `inlineResultMaxBytes`，并验收启用后的 profile 工具调用和卸载清理。同时更新开发依赖，说明消费者侧 override 的适用边界。发布 npm 包不会重建已有 Docker 部署，已有版本标签和 npm 制品不得覆盖。

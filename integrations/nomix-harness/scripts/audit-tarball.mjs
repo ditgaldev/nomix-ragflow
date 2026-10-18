@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
+import { assertPluginManifest } from './plugin-manifest.mjs'
 
 const [tarball] = process.argv.slice(2)
 if (!tarball) throw new Error('usage: node scripts/audit-tarball.mjs <tarball>')
@@ -33,17 +33,15 @@ for (const entry of entries) {
   if (/^package\/lib\/src\/(?:openapi\.generated|capabilities\.generated)\./u.test(entry)) throw new Error(`removed RAGFlow Gateway artifact in tarball: ${entry}`)
   if (/\/(tests|node_modules)\//.test(entry) || /(^|\/)\.env($|\.)/.test(entry)) throw new Error(`forbidden tarball entry: ${entry}`)
 }
-const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+const readPacked = path => execFileSync('tar', ['-xOf', tarball, `package/${path.replace(/^\.\//u, '')}`])
+const manifest = JSON.parse(readPacked('package.json').toString('utf8'))
+await assertPluginManifest(manifest, readPacked)
 if (manifest.name !== '@nomix-ai/nomix-ragflow' || manifest.private === true) throw new Error('unexpected package identity')
 const harnessPackage = '@nomix-ai/nomix-harness'
-if (manifest.dependencies?.[harnessPackage] !== '0.2.9') throw new Error('Harness must be pinned to exactly 0.2.9')
 const forbiddenExports = ['./native-transport', './knowledge-client', './knowledge-errors', './knowledge-types', './provider', './consumer', './policy', './tools']
 for (const path of forbiddenExports) if (manifest.exports?.[path]) throw new Error(`internal plugin layer must not be exported: ${path}`)
 for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
   for (const packageName of Object.keys(manifest[field] ?? {})) {
-    if (packageName === harnessPackage && field !== 'dependencies') {
-      throw new Error(`Harness must be declared once in dependencies, not ${field}`)
-    }
     if (packageName.startsWith('@nomix-ai/') && packageName !== harnessPackage) {
       throw new Error(`${packageName} must be imported through the Harness plugin API, not ${field}`)
     }

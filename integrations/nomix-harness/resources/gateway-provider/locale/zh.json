@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "知识 Gateway 接入",
+    "description": "携带服务凭据和会话断言，通过 HTTP 将共享知识服务连接到配置的业务 Knowledge Gateway。"
+  }
+}

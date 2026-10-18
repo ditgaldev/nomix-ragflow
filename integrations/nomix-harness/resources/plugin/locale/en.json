@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Knowledge Agent Tools",
+    "description": "Installs knowledge search, citation and maintenance tools for configured Agent presets through the shared knowledge service."
+  }
+}

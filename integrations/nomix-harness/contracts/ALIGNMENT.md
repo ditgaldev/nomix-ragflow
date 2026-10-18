@@ -4,6 +4,20 @@
 
 业务接入实施入口是随 npm 包发布的 [Gateway 实现与接入指南](GATEWAY-INTEGRATION.md)，HTTP 唯一契约仍为 [knowledge-gateway.openapi.json](knowledge-gateway.openapi.json)。本文记录插件侧验证证据，不代表任一业务系统已经完成适配。
 
+## 当前宿主规范与验证边界
+
+`engines.nomix` 精确限定 `0.2.12`，仅此版本已验证并受支持。根包和八个私有 workspace 对 Harness 均使用精确 `0.2.12` 的 `peerDependencies` 与 `devDependencies`，不声明普通运行时 Harness 依赖。
+
+根 bundle 导出 `./locale/*.json`、`./icon`；`./plugin`、`./gateway-provider`、`./business-identity`、`./service` 分别导出自己的 `/locale/*.json`、`/icon`。五个入口均提供中英文 `meta.title`、`meta.description`，共用 `resources/icon.svg` 原创矢量图标。
+
+本次规范修正尚未执行构建、打包或真实 Harness 安装；下文列出的既有测试证据及验收流程不能替代本次修改的发行验收，实际界面展示亦未验证。
+
+Consumer 的 `inlineResultMaxBytes` 可通过 Config 调整，默认 12000，允许 1–67108864 的整数。内联判断按完整 JSON 的 UTF-8 字节数计算，等于阈值仍内联；`artifactMaxBytes` 独立限制 spill 写入。
+
+发布清单和安装后资源检查使用实际图像解码与内存栅格化，拒绝损坏 SVG、格式伪装、零尺寸和超过解码像素预算的图片；不只依赖文件后缀或标签正则。验收使用开发依赖 `sharp`，不改变插件运行时依赖。
+
+发行脚本 `verify-profile.mjs` 的验收范围包括安装后的默认禁用配置、通过 Harness CLI 启用插件、Agent 作用域工具调用、本地 HTTP Gateway 的凭证与会话头，以及 Consumer／Provider 卸载清理。源码测试验证该验收逻辑；仅实际运行构建后 tarball 的 profile 验收，才能证明发行产物安装和启动成功。模拟 Gateway 不证明真实业务权限、数据库或检索质量。
+
 ## 本轮确定项
 
 | 方案场景 | 实现 | 独立验证 |
@@ -15,7 +29,7 @@
 | 首次上传/失败 | `activeVersion` 可空；operation 可读重试状态 | `plan-contract.spec.ts` |
 | 身份与传输 | 每次动态解析；拒绝非法头和重定向；共享超时预算 | 真实本地 HTTP `knowledge-transport.spec.ts` |
 | 身份释放 | 自动过期、刷新保护、Cordis fiber 卸载清理 | `business-identity.spec.ts` |
-| Harness 审批与隔离 | 选中 Agent 范围安装；需要 ask 的调用在拒绝或无审批服务时不执行 | `knowledge-harness.spec.ts`，使用真实 0.2.9 运行时 |
+| Harness 审批与隔离 | 选中 Agent 范围安装；需要 ask 的调用在拒绝或无审批服务时不执行 | `knowledge-harness.spec.ts`，使用真实 0.2.12 运行时 |
 | 无证据不编造 | Agent 系统提示词及无结果观察说明 | `knowledge-harness.spec.ts` |
 | OpenAPI | 标准 HTTP 参数/请求体；原始 JSON 随 npm 包导出 | 独立 Ajv 2020-12 校验、生成漂移检查、tarball 检查 |
 | 八个源码包 | 实际实现按八个私有 npm workspace 迁移；根工程统一发布 | 每包 typecheck、`workspace-boundaries.spec.ts`、干净 tarball 消费者 |
@@ -44,7 +58,7 @@
 | 示例必须能直接按正式契约接入 | 完整详情/分页/错误/PATCH/过滤示例 | `knowledge-openapi.spec.ts` 独立 Ajv 校验 |
 | 通用插件不绑定特定业务系统 | 通用 KnowledgeGatewayProvider、业务中立 OpenAPI/manifest、可配置地址/凭证/preset | `knowledge-provider.spec.ts` 双业务配置、`workspace-boundaries.spec.ts` 发布源码边界 |
 
-`knowledge-lifecycle.spec.ts` 使用真实 Harness 0.2.9 AgentLoop、ToolRuntime、SystemPrompt、Cordis Context 和插件组合，仅外部 Gateway、模型、凭证存储及 spill 存储使用测试替身。覆盖上传→查询处理状态→激活→检索→引用、替换/重建期间旧版本可读、成功/失败/取消投影、人工重试子操作、审批、稳定幂等键、断言刷新/过期、取消信号和大型 JSON spill。这验证插件消费业务契约的连续调用，不冒充 Gateway 数据库事务或真实 RAGFlow 检索质量验收。
+`knowledge-lifecycle.spec.ts` 使用真实 Harness 0.2.12 AgentLoop、ToolRuntime、SystemPrompt、Cordis Context 和插件组合，仅外部 Gateway、模型、凭证存储及 spill 存储使用测试替身。覆盖上传→查询处理状态→激活→检索→引用、替换/重建期间旧版本可读、成功/失败/取消投影、人工重试子操作、审批、稳定幂等键、断言刷新/过期、取消信号和大型 JSON spill。这验证插件消费业务契约的连续调用，不冒充 Gateway 数据库事务或真实 RAGFlow 检索质量验收。
 
 ## 包组织与发行决定
 

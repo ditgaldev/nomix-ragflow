@@ -47,15 +47,18 @@ export class KnowledgeGatewayProvider implements KnowledgeProvider {
   available() { return true }
 
   async createService(operation: KnowledgeOperationContext): Promise<KnowledgeGatewayClient> {
-    const identity = operation.businessIdentity.resolveUserAssertion(operation.sessionId)
+    operation.signal?.throwIfAborted()
     let serviceToken
     try {
       serviceToken = await operation.credentials.resolve(this.serviceRef)
     } catch (cause) {
+      operation.signal?.throwIfAborted()
       throw new KnowledgeGatewayError('The Harness service credential could not be resolved for this operation.', { code: 'KNOWLEDGE_PROVIDER_UNAVAILABLE', status: 503, retryable: true, cause })
     }
+    operation.signal?.throwIfAborted()
     const token = serviceToken?.value.trim()
     if (!token) throw new KnowledgeGatewayError('The Harness service token is required.', { code: 'KNOWLEDGE_UNAUTHENTICATED', status: 401 })
+    const identity = operation.businessIdentity.resolveUserAssertion(operation.sessionId)
     const logger = operation.context.logger('nomix-ragflow.gateway')
     return new KnowledgeGatewayClient(this.gatewayBaseURL, {
       serviceToken: token,

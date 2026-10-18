@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { validateArgs } from '@nomix-ai/nomix-harness/plugin/tools'
+import { Config, assertKnowledgeConsumerConfiguration } from '../packages/dsh-bundle-ragflow-knowledge/consumer.js'
 import {
+  DEFAULT_INLINE_KNOWLEDGE_RESULT_MAX_BYTES,
+  MAX_KNOWLEDGE_ARTIFACT_MAX_BYTES,
   KNOWLEDGE_ADMIN_TOOL_NAMES,
   KNOWLEDGE_AGENT_TOOL_NAMES,
   KNOWLEDGE_READ_TOOL_NAMES,
@@ -17,6 +20,25 @@ function propertyNames(schema: { properties?: Record<string, unknown> }): string
 }
 
 describe('Agent-facing knowledge contract', () => {
+  it('defaults inline results to 12000 bytes independently of a tiny artifact cap', () => {
+    const input = { agentToolsets: [{ agentPreset: 'reader', toolset: 'read' as const }], artifactMaxBytes: 1 }
+    expect(DEFAULT_INLINE_KNOWLEDGE_RESULT_MAX_BYTES).toBe(12_000)
+    expect(Config(input).inlineResultMaxBytes).toBe(12_000)
+    expect(() => assertKnowledgeConsumerConfiguration(input)).not.toThrow()
+  })
+
+  it.each([1, 32, MAX_KNOWLEDGE_ARTIFACT_MAX_BYTES])('accepts an independent inline threshold of %i bytes', inlineResultMaxBytes => {
+    const input = { agentToolsets: [{ agentPreset: 'reader', toolset: 'read' as const }], artifactMaxBytes: 1, inlineResultMaxBytes }
+    expect(Config(input).inlineResultMaxBytes).toBe(inlineResultMaxBytes)
+    expect(() => assertKnowledgeConsumerConfiguration(input)).not.toThrow()
+  })
+
+  it.each([0, -1, 1.5, NaN, Infinity, MAX_KNOWLEDGE_ARTIFACT_MAX_BYTES + 1])('rejects an invalid inline threshold of %s in schema and direct consumer calls', inlineResultMaxBytes => {
+    const input = { agentToolsets: [{ agentPreset: 'reader', toolset: 'read' as const }], inlineResultMaxBytes }
+    expect(() => Config(input)).toThrow()
+    expect(() => assertKnowledgeConsumerConfiguration(input)).toThrow(expect.objectContaining({ code: 'KNOWLEDGE_INVALID_INPUT', status: 422, message: 'inlineResultMaxBytes is outside the supported range.' }))
+  })
+
   it('publishes exactly 20 finalized tools and the read/maintenance/admin visibility', () => {
     expect(KNOWLEDGE_READ_TOOL_NAMES).toEqual([
       'knowledge_space_list', 'knowledge_space_get', 'knowledge_document_list', 'knowledge_document_get',

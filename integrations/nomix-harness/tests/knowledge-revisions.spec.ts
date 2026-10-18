@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { KnowledgeGatewayClient } from '../packages/dsh-knowledge-gateway/knowledge-client.js'
 import { parseKnowledgeToolInput, parseKnowledgeToolResult } from '../packages/dsh-knowledge/knowledge-schema.js'
 import { knowledgeOutput, observeKnowledge } from '../packages/dsh-knowledge/knowledge-observation.js'
+import { DEFAULT_INLINE_KNOWLEDGE_RESULT_MAX_BYTES } from '../packages/dsh-knowledge/harness-contract.js'
 import { knowledgeToolDataSchemas } from '../packages/dsh-knowledge/knowledge-tool-schemas.generated.js'
 import { documentDetail, versionDetail, success, failure, metadata, pagination } from './knowledge-fixtures.js'
 
@@ -40,7 +41,7 @@ describe('formal active/candidate version contract', () => {
   })
   it('renders both versions, unknown progress, and retry operation without claiming zero percent', async () => {
     const detail = documentDetail({ candidateVersion: candidate('FAILED') })
-    const output = await observeKnowledge({ spillText: vi.fn() }, { callId: 'c' } as never, 'knowledge_document_get', 'document-detail', detail)
+    const output = await observeKnowledge({ inlineResultMaxBytes: DEFAULT_INLINE_KNOWLEDGE_RESULT_MAX_BYTES, spillText: vi.fn() }, { callId: 'c' } as never, 'knowledge_document_get', 'document-detail', detail)
     const render = knowledgeOutput(['document-detail'], knowledgeToolDataSchemas.KnowledgeDocumentDetail).render
     const text = JSON.stringify(render({}, output as never))
     for (const expected of ['当前生效版本', 'V1', '待生效版本', 'V2', 'Provider 未提供可靠百分比', '文档处理超时', 'op-2', '是否可重试：是']) expect(text).toContain(expected)
@@ -51,7 +52,7 @@ describe('formal active/candidate version contract', () => {
     const detail = documentDetail({ name: '文'.repeat(255), activeVersion: versionDetail({ fileName: '😀'.repeat(255) }), candidateVersion: { ...failed, fileName: '😀'.repeat(255), error: { ...failed.error!, message: '😀'.repeat(2000) } }, metadata: { ...metadata, tags: Array.from({ length: 20 }, (_, i) => `${i}${'文'.repeat(30)}`) } })
     parseKnowledgeToolResult('knowledge_document_get', detail)
     const spillText = vi.fn(async (_exec, input: { name: string; content: string }) => ({ kind: 'spill' as const, name: input.name, locator: 'spill://detail', mimeType: 'application/json' as const, encoding: 'utf8' as const, bytes: new TextEncoder().encode(input.content).byteLength, storedBytes: new TextEncoder().encode(input.content).byteLength, retrievalHint: 'Read full JSON' }))
-    const output = await observeKnowledge({ spillText }, { callId: 'c' } as never, 'knowledge_document_get', 'document-detail', detail)
+    const output = await observeKnowledge({ inlineResultMaxBytes: DEFAULT_INLINE_KNOWLEDGE_RESULT_MAX_BYTES, spillText }, { callId: 'c' } as never, 'knowledge_document_get', 'document-detail', detail)
     expect(output.data.kind).toBe('artifact-reference')
     expect(output.summary).toContain('待生效版本：V2')
     expect(output.summary).toContain('操作编号：op-2')

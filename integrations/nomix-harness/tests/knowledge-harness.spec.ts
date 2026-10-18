@@ -4,7 +4,8 @@ import { createScope } from '@nomix-ai/nomix-harness/plugin/scope'
 import { SystemPrompt, renderPrompt } from '@nomix-ai/nomix-harness/plugin/system-prompt'
 import { ToolRuntime } from '@nomix-ai/nomix-harness/plugin/tools'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { applyKnowledgeConsumer } from '../packages/dsh-bundle-ragflow-knowledge/consumer.js'
+import { applyKnowledgeConsumer, inject } from '../packages/dsh-bundle-ragflow-knowledge/consumer.js'
+import { inject as pluginInject } from '../packages/dsh-bundle-ragflow-knowledge/plugin.js'
 import { KNOWLEDGE_EVIDENCE_INSTRUCTIONS } from '../packages/dsh-knowledge-policy/policy.js'
 import { documentDetail } from './knowledge-fixtures.js'
 
@@ -35,7 +36,12 @@ function setup() {
   return { root, prompt, tools, agent, scope, execute, search, reindexDocument, forOperation }
 }
 
-describe('Harness 0.2.9 knowledge integration', () => {
+describe('Harness knowledge integration', () => {
+  it('shares the required service declarations between both entry points without requiring an agent', () => {
+    expect(pluginInject).toBe(inject)
+    expect(inject).toEqual(['knowledge', 'businessIdentity', 'agents', 'tools', 'credentials', 'spillStore', 'systemPrompt'])
+  })
+
   it('installs evidence guidance and exactly sixteen tools only in the selected Agent scope', async () => {
     const { prompt, agent, scope } = setup()
     const selected = await prompt.assemble({ scope: agent })

@@ -1,16 +1,18 @@
 import { Context } from '@nomix-ai/nomix-harness/plugin'
 import { AgentRegistry, type Agent } from '@nomix-ai/nomix-harness/plugin/agent'
 import { AgentLoop } from '@nomix-ai/nomix-harness/plugin/agent-loop'
-import { CallId, createUserMessage, LlmAdapter, LlmRuntime, markAgentLoopRequest, type GenerateOptions, type StreamChunk } from '@nomix-ai/nomix-harness/plugin/llm'
-import { SessionStore, SessionId } from '@nomix-ai/nomix-harness/plugin/session'
+import { ToolCallId, createSystemMessage, createUserMessage, LlmAdapter, LlmRuntime, markAgentLoopRequest, type GenerateOptions, type StreamChunk } from '@nomix-ai/nomix-harness/plugin/llm'
+import { SessionStore, SessionId, type SessionEvent } from '@nomix-ai/nomix-harness/plugin/session'
+import { SessionProjectionRegistry } from '@nomix-ai/nomix-harness/plugin/session-projection'
 import { SystemPrompt } from '@nomix-ai/nomix-harness/plugin/system-prompt'
 import { ToolRuntime } from '@nomix-ai/nomix-harness/plugin/tools'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { applyKnowledgeConsumer } from '../packages/dsh-bundle-ragflow-knowledge/consumer.js'
+import { applyKnowledgeConsumer, type Config } from '../packages/dsh-bundle-ragflow-knowledge/consumer.js'
+import { DEFAULT_INLINE_KNOWLEDGE_RESULT_MAX_BYTES } from '../packages/dsh-knowledge/harness-contract.js'
 import { BusinessIdentityRuntime } from '../packages/dsh-business-identity/business-identity.js'
 import { KnowledgeRuntime } from '../packages/dsh-knowledge/service.js'
 import { applyKnowledgeProvider } from '../packages/dsh-knowledge-gateway/provider.js'
-import { KNOWLEDGE_EVIDENCE_INSTRUCTIONS } from '../packages/dsh-knowledge-policy/policy.js'
+import { assertKnowledgeEvidencePrompt, KNOWLEDGE_EVIDENCE_INSTRUCTIONS } from '../packages/dsh-knowledge-policy/policy.js'
 import { documentDetail, versionDetail, success, failure, metadata } from './knowledge-fixtures.js'
 
 // Real Agent Loop, ToolRuntime, Consumer, identity and HTTP Provider. Only the
@@ -22,7 +24,7 @@ class ScriptedModel extends LlmAdapter {
     this.requests.push(request)
     const call = this.script.shift()
     if (call) {
-      const id = CallId(`model-call-${this.requests.length}`)
+      const id = ToolCallId(`model-call-${this.requests.length}`)
       const args = JSON.stringify({ input: call.input })
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
       yield { type: 'tool-call-delta', index: 0, id, name: call.name, argumentsDelta: args }
@@ -35,10 +37,11 @@ class ScriptedModel extends LlmAdapter {
 const roots: Context[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(ctx => ctx.fiber.dispose())); vi.unstubAllGlobals() })
 
-async function setup(model = new ScriptedModel()) {
+async function setup(model = new ScriptedModel(), config: Omit<Config, 'agentToolsets'> = {}) {
   const ctx = new Context(); roots.push(ctx)
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt, { includeHarnessIdentity: false })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
@@ -55,15 +58,17 @@ async function setup(model = new ScriptedModel()) {
   ctx.provide('spillStore', { saveText } as never)
   const requestApproval = vi.fn(async () => 'allowed-once')
   ctx.provide('approval', { request: requestApproval } as never)
+  const events: SessionEvent[] = []
+  ctx.on('session/event', (_session, event) => { events.push(event) })
   applyKnowledgeProvider(ctx, { gatewayBaseURL: 'https://gateway.example', serviceTokenRef: 'KNOWLEDGE_SERVICE_TOKEN' })
-  applyKnowledgeConsumer(ctx, { agentToolsets: [{ agentPreset: 'maintainer', toolset: 'admin' }] })
+  applyKnowledgeConsumer(ctx, { ...config, agentToolsets: [{ agentPreset: 'maintainer', toolset: 'admin' }] })
   ctx.llm.registerAdapter(['test'], model)
   const handle = await ctx.agents.create({ sessionId: SessionId('knowledge-session'), meta: { agentPreset: 'maintainer' }, agentOptions: { provider: 'test', model: 'test' } })
   const agent = handle.agent
   const bind = (assertion = 'test-user') => identity.bindSession({ sessionId: agent.id, userAssertion: assertion, expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 60 })
   const unbind = bind()
-  const execute = (name: string, input: object, callId = name, signal = new AbortController().signal) => ctx.tools.execute({ agent, name, arguments: { input }, callId: CallId(callId), signal })
-  return { ctx, agent, handle, model, execute, identity, bind, unbind, credentials, requestApproval, stored, saveText }
+  const execute = (name: string, input: object, callId = name, signal = new AbortController().signal) => ctx.tools.execute({ agent, name, arguments: { input }, callId: ToolCallId(callId), signal })
+  return { ctx, agent, handle, model, execute, identity, bind, unbind, credentials, requestApproval, stored, saveText, events }
 }
 
 async function run(agent: Agent) {
@@ -72,6 +77,14 @@ async function run(agent: Agent) {
 }
 
 describe('knowledge request boundary and continuous workflows', () => {
+  it('checks the latest system message and rejects policy supplied only by a user or one-shot field', () => {
+    const policy = createSystemMessage(KNOWLEDGE_EVIDENCE_INSTRUCTIONS)
+    const missing = createSystemMessage('Missing policy')
+    const request = (messages: GenerateOptions['messages']) => markAgentLoopRequest({ provider: 'test', model: 'test', messages, system: KNOWLEDGE_EVIDENCE_INSTRUCTIONS })
+    expect(() => assertKnowledgeEvidencePrompt(request([missing, policy]))).not.toThrow()
+    expect(() => assertKnowledgeEvidencePrompt(request([policy, missing]))).toThrow('missing the required evidence policy')
+    expect(() => assertKnowledgeEvidencePrompt(request([createUserMessage({ content: [{ type: 'text', text: KNOWLEDGE_EVIDENCE_INSTRUCTIONS }], source: { kind: 'user' } })]))).toThrow('missing the required evidence policy')
+  })
   it.each([false, true])('checks the exact dynamic complete prompt with no second assembly (valid=%s)', async valid => {
     const { agent, model } = await setup()
     const text = vi.fn(context => context.agent && !valid ? 'Missing policy' : KNOWLEDGE_EVIDENCE_INSTRUCTIONS)
@@ -81,7 +94,7 @@ describe('knowledge request boundary and continuous workflows', () => {
     expect(text.mock.calls[0]![0].agent).toBe(agent)
     expect(text.mock.calls[0]![0].signal).toBeInstanceOf(AbortSignal)
     expect(model.requests).toHaveLength(valid ? 1 : 0)
-    if (valid) expect(model.requests[0]!.system).toBe(KNOWLEDGE_EVIDENCE_INSTRUCTIONS)
+    if (valid) expect(model.requests[0]!.messages[0]).toMatchObject({ role: 'system', content: [{ type: 'text', text: KNOWLEDGE_EVIDENCE_INSTRUCTIONS }] })
   })
 
   it('routes the stream guard only to its owned session and removes it on Agent disposal', async () => {
@@ -103,7 +116,7 @@ describe('knowledge request boundary and continuous workflows', () => {
       { name: 'knowledge_search', input: { query: '制度' } },
       { name: 'knowledge_source_read', input: { citationId: 'cite-1' } },
     ]
-    const { agent, model, requestApproval } = await setup(new ScriptedModel(steps))
+    const { agent, model, requestApproval, events } = await setup(new ScriptedModel(steps))
     const replies = [
       { documentId: 'doc-1', operationId: 'op-1', status: 'PENDING' },
       documentDetail({ status: 'CREATING', searchable: false, activeVersion: null, candidateVersion: versionDetail({ status: 'INGESTING', operationStatus: 'RUNNING', progressPercent: null, progressSource: 'UNAVAILABLE', activatedAt: null, readyAt: null }) }),
@@ -125,7 +138,7 @@ describe('knowledge request boundary and continuous workflows', () => {
     await run(agent)
     expect(replies).toHaveLength(0)
     expect(model.requests).toHaveLength(7)
-    const results = agent.session.events.filter(event => event.type === 'tool/result')
+    const results = events.filter(event => event.type === 'tool/result')
     expect(results).toHaveLength(6)
     expect(JSON.stringify(results)).not.toContain('"isError":true')
     expect(JSON.stringify(model.requests.at(-1)!.messages)).toContain('按制度申请')
@@ -246,6 +259,19 @@ describe('knowledge request boundary and continuous workflows', () => {
     expect(fetch).toHaveBeenCalledOnce()
   })
 
+  it('propagates a custom inline threshold through the consumer to spill small results', async () => {
+    const { execute, stored, saveText } = await setup(undefined, { inlineResultMaxBytes: 32 })
+    const data = { query: '制度', traceId: 'search-trace', hits: [], reason: 'NO_AUTHORIZED_RELEVANT_EVIDENCE' }
+    expect(Buffer.byteLength(JSON.stringify(data))).toBeGreaterThan(32)
+    expect(Buffer.byteLength(JSON.stringify(data))).toBeLessThan(DEFAULT_INLINE_KNOWLEDGE_RESULT_MAX_BYTES)
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json(success(data))))
+    const result = await execute('knowledge_search', { query: '制度' })
+    expect(result.isError).toBe(false)
+    expect(saveText).toHaveBeenCalledOnce()
+    expect(JSON.parse([...stored.values()][0]!)).toEqual(data)
+    expect(JSON.stringify(result)).toContain('spill://')
+  })
+
   it('spills a large authorized search as complete UTF-8 JSON through the runtime', async () => {
     const { execute, stored, saveText } = await setup()
     const hits = Array.from({ length: 8 }, (_, i) => ({ citationId: `cite-${i}`, documentId: `doc-${i}`, documentName: '制度', chapterPath: ['正文'], content: '文'.repeat(2000), score: 0.9, metadata }))
@@ -257,5 +283,46 @@ describe('knowledge request boundary and continuous workflows', () => {
     expect(JSON.parse([...stored.values()][0]!)).toEqual(data)
     expect(JSON.stringify(result)).not.toContain('base64')
     expect(JSON.stringify(result)).toContain('spill://')
+  })
+
+  it.each(['before-provider', 'before-spill', 'during-spill', 'spill-rejects'] as const)('preserves cancellation at %s without abandoning storage', async stage => {
+    const { ctx, agent, saveText } = await setup()
+    const controller = new AbortController()
+    const reason = new Error('cancelled by caller')
+    const hits = Array.from({ length: 8 }, (_, i) => ({ citationId: `cite-${i}`, documentId: `doc-${i}`, documentName: '制度', chapterPath: ['正文'], content: '文'.repeat(2000), score: 0.9, metadata }))
+    const provider = vi.spyOn(ctx.knowledge, 'forOperation').mockResolvedValue({
+      search: async () => {
+        if (stage === 'before-spill') controller.abort(reason)
+        return { query: '制度', traceId: 'search-trace', hits }
+      },
+    } as never)
+    let started!: () => void
+    const ready = new Promise<void>(resolve => { started = resolve })
+    let release!: () => void
+    const storage = new Promise<void>(resolve => { release = resolve })
+    saveText.mockImplementation(async () => {
+      started()
+      await storage
+      if (stage === 'spill-rejects') throw new Error('storage failed')
+      return { locator: 'spill://result', bytes: 1, retrievalHint: 'Read result' }
+    })
+    if (stage === 'before-provider') controller.abort(reason)
+    // Invoke the registered body so Harness result normalization cannot hide a translated cancellation.
+    const result = ctx.tools.get('knowledge_search', agent)!.execute({ input: { query: '制度' } }, {
+      agent, name: 'knowledge_search', callId: ToolCallId('cancel-spill'), rootCallId: ToolCallId('cancel-spill'), signal: controller.signal,
+    } as never)
+    const rejected = expect(result).rejects.toBe(reason)
+    if (stage === 'during-spill' || stage === 'spill-rejects') {
+      await ready
+      let settled = false
+      void result.then(() => { settled = true }, () => { settled = true })
+      controller.abort(reason)
+      await Promise.resolve()
+      expect(settled).toBe(false)
+      release()
+    }
+    await rejected
+    expect(provider).toHaveBeenCalledTimes(stage === 'before-provider' ? 0 : 1)
+    expect(saveText).toHaveBeenCalledTimes(stage === 'during-spill' || stage === 'spill-rejects' ? 1 : 0)
   })
 })

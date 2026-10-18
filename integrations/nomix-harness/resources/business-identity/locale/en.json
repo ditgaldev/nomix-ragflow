@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Business Session Identity",
+    "description": "Binds short-lived business user assertions to Harness sessions and resolves the current assertion for each knowledge tool call."
+  }
+}

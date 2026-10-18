@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
+import { assertPluginManifest } from './plugin-manifest.mjs'
 
 const [input] = process.argv.slice(2)
 if (!input) throw new Error('usage: node scripts/verify-consumer.mjs <tarball>')
@@ -65,6 +67,7 @@ if (typeof provider.KnowledgeGatewayProvider !== 'function' || provider.name !==
 execFileSync(process.execPath, [join(directory, 'plugin.mjs')], { cwd: directory, stdio: 'inherit' })
 const installed = JSON.parse(await readFile(join(directory, 'node_modules/@nomix-ai/nomix-ragflow/package.json'), 'utf8'))
 const installedRoot = join(directory, 'node_modules/@nomix-ai/nomix-ragflow')
+await assertPluginManifest(installed, path => readFileSync(join(installedRoot, path)))
 const packageFiles = []
 async function walk(path, prefix = '') {
   for (const entry of await readdir(path, { withFileTypes: true })) {

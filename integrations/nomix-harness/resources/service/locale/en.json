@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Shared Knowledge Service",
+    "description": "Exposes the provider-neutral knowledge API used by Agent tools and delegates requests to the available knowledge provider."
+  }
+}

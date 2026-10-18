@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Nomix RAGFlow 知识插件包",
+    "description": "为 Nomix Harness 组合知识工具、Gateway 接入、会话身份绑定和共享知识服务。"
+  }
+}

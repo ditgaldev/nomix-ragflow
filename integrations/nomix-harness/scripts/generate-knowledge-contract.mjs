@@ -50,7 +50,7 @@ function toolSchema(schemaInput) {
   if (Array.isArray(schema.oneOf)) return { oneOf: schema.oneOf.map(toolSchema) }
   const type = schema.type ?? (typeof schema.const === 'string' ? 'string' : typeof schema.const === 'boolean' ? 'boolean' : typeof schema.const === 'number' ? 'number' : undefined)
   const result = {}
-  // Harness 0.2.9 intentionally supports a small enforced schema DSL. Full
+  // Harness 0.2.12 intentionally supports a small enforced schema DSL. Full
   // OpenAPI bounds remain authoritative and are checked again before dispatch.
   for (const key of ['const', 'enum', 'default']) {
     if (key in schema) result[key] = schema[key]

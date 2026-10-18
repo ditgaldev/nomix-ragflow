@@ -6,7 +6,10 @@ export const KNOWLEDGE_EVIDENCE_INSTRUCTIONS = '企业内部规则必须依据 k
 
 /** Read the exact immutable loop request; auxiliary model calls are not Agent steps. */
 export function assertKnowledgeEvidencePrompt(request: GenerateOptions): void {
-  if (isAgentLoopRequest(request) && !request.system?.includes(KNOWLEDGE_EVIDENCE_INSTRUCTIONS)) {
+  if (!isAgentLoopRequest(request)) return
+  const system = request.messages.findLast(message => message.role === 'system')
+  const prompt = system?.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
+  if (!prompt?.includes(KNOWLEDGE_EVIDENCE_INSTRUCTIONS)) {
     throw new Error('Knowledge Agent prompt is missing the required evidence policy. Include KNOWLEDGE_EVIDENCE_INSTRUCTIONS in the complete prompt before making a model request.')
   }
 }

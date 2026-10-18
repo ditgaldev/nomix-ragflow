@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Nomix RAGFlow Knowledge",
+    "description": "Bundles knowledge tools, a Gateway provider, session identity and a shared knowledge service for Nomix Harness."
+  }
+}

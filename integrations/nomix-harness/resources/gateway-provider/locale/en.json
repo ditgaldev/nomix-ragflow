@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Knowledge Gateway Provider",
+    "description": "Connects the shared knowledge service to a configured business Knowledge Gateway over HTTP with service credentials and session assertions."
+  }
+}
